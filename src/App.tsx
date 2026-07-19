@@ -5,6 +5,7 @@ import { Button, cn } from "./components/primitives";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Analyse from "./pages/Analyse";
+import Docs from "./pages/Docs";
 import SignIn from "./pages/SignIn";
 
 function Mark({ size = 26 }: { size?: number }) {
@@ -59,7 +60,7 @@ function ThemeToggle() {
 
 const NAV = [
   { to: "/", label: "Product", end: true },
-  { to: "/dashboard", label: "Dashboard", end: false },
+  { to: "/docs", label: "Documentation", end: false },
   { to: "/analyse", label: "Sandbox", end: false },
 ];
 
@@ -147,40 +148,40 @@ const FOOTER = [
   {
     title: "Product",
     links: [
-      ["Coverage", "/#product"],
-      ["How it works", "/#how"],
+      ["What we stop", "/#problems"],
       ["Pricing", "/#pricing"],
-      ["Dashboard", "/dashboard"],
+      ["Documentation", "/docs"],
       ["Detection sandbox", "/analyse"],
+      ["Sign in", "/signin"],
     ],
   },
   {
     title: "Protects against",
     links: [
-      ["Invoice fraud", "/#product"],
-      ["Lookalike domains", "/#product"],
-      ["Account takeover", "/#product"],
-      ["Thread hijacking", "/#product"],
-      ["Mailbox tampering", "/#product"],
+      ["Invoice fraud", "/docs#detections"],
+      ["Lookalike domains", "/docs#detections"],
+      ["Account takeover", "/docs#detections"],
+      ["Thread hijacking", "/docs#detections"],
+      ["Mailbox tampering", "/docs#detections"],
     ],
   },
   {
     title: "Works with",
     links: [
-      ["Microsoft 365", "/#how"],
-      ["Google Workspace", "/#how"],
-      ["HiNet · hiBox", "/#how"],
-      ["263 · SingNet", "/#how"],
-      ["Any IMAP provider", "/#how"],
+      ["Microsoft 365", "/docs#connect"],
+      ["Google Workspace", "/docs#connect"],
+      ["HiNet · hiBox", "/docs#connect"],
+      ["263 · SingNet", "/docs#connect"],
+      ["Any IMAP provider", "/docs#connect"],
     ],
   },
   {
     title: "Company",
     links: [
-      ["About", "/#about"],
-      ["Mission", "/#about"],
-      ["Security", "/#how"],
-      ["Sign in", "/signin"],
+      ["Documentation", "/docs"],
+      ["API reference", "/docs#api"],
+      ["Data handling", "/docs#data"],
+      ["Our security", "/docs#security"],
       ["Create account", "/signin"],
     ],
   },
@@ -270,6 +271,7 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/analyse" element={<Analyse />} />
+          <Route path="/docs" element={<Docs />} />
           <Route path="/signin" element={<SignIn />} />
         </Routes>
       </div>

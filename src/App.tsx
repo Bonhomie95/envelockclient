@@ -1,0 +1,279 @@
+import { useEffect, useState } from "react";
+import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Menu, Moon, Sun, X } from "lucide-react";
+import { Button, cn } from "./components/primitives";
+import Landing from "./pages/Landing";
+import Dashboard from "./pages/Dashboard";
+import Analyse from "./pages/Analyse";
+import SignIn from "./pages/SignIn";
+
+function Mark({ size = 26 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden fill="none">
+      <rect width="32" height="32" fill="var(--accent)" />
+      <path
+        d="M16 7l7 3v5.6c0 4.2-2.9 8-7 9.4-4.1-1.4-7-5.2-7-9.4V10l7-3z"
+        stroke="var(--accent-ink)"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.6 16.2l2.6 2.6 4.3-4.7"
+        stroke="var(--accent-ink)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function Logo() {
+  return (
+    <Link
+      to="/"
+      className="flex items-center gap-2.5"
+      aria-label="Envelock home"
+    >
+      <Mark />
+      <span className="text-[15px] font-bold tracking-tight">ENVELOCK</span>
+    </Link>
+  );
+}
+
+function ThemeToggle() {
+  const [dark, setDark] = useState(true);
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  }, [dark]);
+  return (
+    <button
+      onClick={() => setDark((d) => !d)}
+      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+      className="fg-2 flex size-11 cursor-pointer items-center justify-center transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--fg)]"
+    >
+      {dark ? <Sun size={16} aria-hidden /> : <Moon size={16} aria-hidden />}
+    </button>
+  );
+}
+
+const NAV = [
+  { to: "/", label: "Product", end: true },
+  { to: "/dashboard", label: "Dashboard", end: false },
+  { to: "/analyse", label: "Sandbox", end: false },
+];
+
+function Header() {
+  const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  useEffect(() => setOpen(false), [pathname]);
+
+  return (
+    <header className="sticky top-0 z-50 border-b bg-[var(--bg)]/92 backdrop-blur">
+      <div className="shell flex h-16 items-center gap-8">
+        <Logo />
+
+        <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+          {NAV.map((i) => (
+            <NavLink
+              key={i.to}
+              to={i.to}
+              end={i.end}
+              className={({ isActive }) =>
+                cn(
+                  "font-mono px-3 py-2 text-xs font-medium tracking-wide uppercase transition-colors",
+                  isActive ? "accent" : "fg-2 hover:text-[var(--fg)]",
+                )
+              }
+            >
+              {i.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="ml-auto flex items-center gap-1">
+          <ThemeToggle />
+          <Link to="/signin" className="hidden md:block">
+            <Button variant="line" size="sm">
+              SIGN IN
+            </Button>
+          </Link>
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            className="fg-2 flex size-11 cursor-pointer items-center justify-center md:hidden"
+          >
+            {open ? (
+              <X size={18} aria-hidden />
+            ) : (
+              <Menu size={18} aria-hidden />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <nav className="border-t md:hidden" aria-label="Mobile">
+          <div className="shell flex flex-col divide-y">
+            {NAV.map((i) => (
+              <NavLink
+                key={i.to}
+                to={i.to}
+                end={i.end}
+                className={({ isActive }) =>
+                  cn(
+                    "font-mono py-4 text-sm font-medium tracking-wide uppercase",
+                    isActive ? "accent" : "fg-2",
+                  )
+                }
+              >
+                {i.label}
+              </NavLink>
+            ))}
+            <Link to="/signin" className="py-4">
+              <Button variant="accent" className="w-full">
+                SIGN IN
+              </Button>
+            </Link>
+          </div>
+        </nav>
+      )}
+    </header>
+  );
+}
+
+const FOOTER = [
+  {
+    title: "Product",
+    links: [
+      ["Coverage", "/#product"],
+      ["How it works", "/#how"],
+      ["Pricing", "/#pricing"],
+      ["Dashboard", "/dashboard"],
+      ["Detection sandbox", "/analyse"],
+    ],
+  },
+  {
+    title: "Protects against",
+    links: [
+      ["Invoice fraud", "/#product"],
+      ["Lookalike domains", "/#product"],
+      ["Account takeover", "/#product"],
+      ["Thread hijacking", "/#product"],
+      ["Mailbox tampering", "/#product"],
+    ],
+  },
+  {
+    title: "Works with",
+    links: [
+      ["Microsoft 365", "/#how"],
+      ["Google Workspace", "/#how"],
+      ["HiNet · hiBox", "/#how"],
+      ["263 · SingNet", "/#how"],
+      ["Any IMAP provider", "/#how"],
+    ],
+  },
+  {
+    title: "Company",
+    links: [
+      ["About", "/#about"],
+      ["Mission", "/#about"],
+      ["Security", "/#how"],
+      ["Sign in", "/signin"],
+      ["Create account", "/signin"],
+    ],
+  },
+];
+
+function Footer() {
+  return (
+    <footer className="border-t">
+      <div className="shell py-16">
+        <div className="grid12">
+          <div className="col-span-12 lg:col-span-4">
+            <Logo />
+            <p className="fg-2 mt-5 max-w-xs text-sm leading-relaxed">
+              Email fraud and account-takeover protection for businesses on any
+              mail provider.
+            </p>
+            <p className="fg-3 mono-xs mt-6">
+              WE STOP YOUR MONEY GOING
+              <br />
+              TO THE WRONG BANK ACCOUNT
+            </p>
+          </div>
+
+          {FOOTER.map((col) => (
+            <div
+              key={col.title}
+              className="col-span-6 mt-10 lg:col-span-2 lg:mt-0"
+            >
+              <h3 className="sect-label">{col.title}</h3>
+              <ul className="mt-5 space-y-3" role="list">
+                {col.links.map(([label, href]) => (
+                  <li key={label}>
+                    <Link
+                      to={href}
+                      className="fg-2 text-sm transition-colors hover:text-[var(--fg)]"
+                    >
+                      {label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-16 flex flex-col gap-4 border-t pt-8 sm:flex-row sm:items-center">
+          <p className="fg-3 mono-xs">
+            © {new Date().getFullYear()} ENVELOCK — ALL RIGHTS RESERVED
+          </p>
+          <div className="fg-3 mono-xs flex gap-6 sm:ml-auto">
+            <span>PRIVACY</span>
+            <span>TERMS</span>
+            <span>DPA</span>
+            <span>STATUS</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function ScrollToTop() {
+  const { pathname, hash } = useLocation();
+  useEffect(() => {
+    if (hash) {
+      document.querySelector(hash)?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    window.scrollTo(0, 0);
+  }, [pathname, hash]);
+  return null;
+}
+
+export default function App() {
+  return (
+    <div id="top" className="flex min-h-dvh flex-col">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-60 focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-white"
+      >
+        Skip to main content
+      </a>
+      <ScrollToTop />
+      <Header />
+      <div id="main" className="flex-1">
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/analyse" element={<Analyse />} />
+          <Route path="/signin" element={<SignIn />} />
+        </Routes>
+      </div>
+      <Footer />
+    </div>
+  );
+}

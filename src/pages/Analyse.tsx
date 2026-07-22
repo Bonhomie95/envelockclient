@@ -275,12 +275,11 @@ export default function Analyse() {
                     className="rise p-5"
                     style={{ animationDelay: `${i * 50}ms` }}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <code className="font-mono border px-1.5 py-0.5 text-xs font-semibold">
-                        {f.service}
-                      </code>
-                      <TierChip tier={f.tier} />
-                    </div>
+                    {/* Internal detection codes (A1, C11, …) are deliberately
+                        not shown on this public demo — the plain-English finding
+                        is enough to convince a visitor without handing a
+                        competitor our taxonomy. */}
+                    <TierChip tier={f.tier} />
                     <p className="mt-2.5 text-sm leading-relaxed">
                       {f.summary}
                     </p>

@@ -276,10 +276,17 @@ export default function Analyse() {
                     style={{ animationDelay: `${i * 50}ms` }}
                   >
                     {/* Internal detection codes (A1, C11, …) are deliberately
-                        not shown on this public demo — the plain-English finding
-                        is enough to convince a visitor without handing a
-                        competitor our taxonomy. */}
-                    <TierChip tier={f.tier} />
+                        withheld from anonymous callers server-side (PRD §16) —
+                        the plain-English category and finding convince a visitor
+                        without handing a competitor our taxonomy. */}
+                    <div className="flex items-center gap-2">
+                      <TierChip tier={f.tier} />
+                      {f.category && (
+                        <span className="fg-2 text-xs font-medium uppercase tracking-wide">
+                          {f.category}
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-2.5 text-sm leading-relaxed">
                       {f.summary}
                     </p>

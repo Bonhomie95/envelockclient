@@ -1,11 +1,14 @@
 export type Tier = "low" | "medium" | "high" | "critical";
 
 export interface Finding {
-  service: string;
+  // Null for anonymous callers — the internal detection code is withheld
+  // server-side (PRD §16); `category` is the public, plain-English grouping.
+  service: string | null;
+  category?: string;
   tier: Tier;
-  score: number;
+  score?: number;
   summary: string;
-  evidence: Record<string, unknown>;
+  evidence?: Record<string, unknown>;
 }
 
 export interface Assessment {
@@ -13,7 +16,7 @@ export interface Assessment {
   score: number;
   title: string;
   body: string;
-  services: string[];
+  services: string[] | null;
   requires_callback: boolean;
   callback_phone: string | null;
   rationale: string[];

@@ -11,7 +11,7 @@ const SAMPLES: Record<
     label: "Supplier changes bank details",
     hint: "The attack that actually takes the money",
     body: `From: "Gemini Accounts" <billing@gemini.com>
-To: pay@acme.com.ng
+To: pay@acme.com
 Subject: Re: Invoice 4471
 Message-ID: <new@gemini.com>
 In-Reply-To: <old@gemini.com>
@@ -33,14 +33,14 @@ Gemini Accounts`,
     ctx: {
       counterparty_message_count: 47,
       counterparty_known_bank_ids: ["GB94BARC10201530093459"],
-      counterparty_phone: "+234 803 000 0000",
+      counterparty_phone: "+1 803 000 0000",
     },
   },
   lookalike: {
     label: "Lookalike domain",
     hint: "gemini-invoices.com, replies redirected elsewhere",
     body: `From: "Gemini Ltd" <billing@gemini-invoices.com>
-To: pay@acme.com.ng
+To: pay@acme.com
 Subject: Updated payment instructions
 Reply-To: finance@gemini-pay.net
 Content-Type: text/plain
@@ -56,7 +56,7 @@ Please treat as urgent and confidential.`,
     label: "Thread hijacking",
     hint: "Presents as a reply but has no thread chain",
     body: `From: <accounts@gemini.com>
-To: pay@acme.com.ng
+To: pay@acme.com
 Subject: Re: Purchase Order 8891
 Content-Type: text/plain
 
@@ -68,7 +68,7 @@ provided earlier today.`,
     label: "Ordinary email",
     hint: "Should produce nothing. Silence is a feature.",
     body: `From: <sara@gemini.com>
-To: pay@acme.com.ng
+To: pay@acme.com
 Subject: Lunch Thursday?
 Content-Type: text/plain
 
@@ -106,7 +106,7 @@ export default function Analyse() {
       setResult(
         await api.analyse({
           raw_message: raw,
-          owned_domains: ["acme.com.ng"],
+          owned_domains: ["acme.com"],
           known_counterparties: ["gemini.com"],
           source: "imap_idle",
           ...ctx,
@@ -151,7 +151,7 @@ export default function Analyse() {
             <label htmlFor="raw" className="text-sm font-semibold">
               Raw message
             </label>
-            <span className="fg-3 text-xs">Mailbox: pay@acme.com.ng</span>
+            <span className="fg-3 text-xs">Mailbox: pay@acme.com</span>
           </div>
           <textarea
             id="raw"

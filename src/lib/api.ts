@@ -108,6 +108,7 @@ export interface AlertRecord {
   body: string;
   state: string;
   mailbox_id: string | null;
+  counterparty_domain: string | null;
   requires_callback: boolean;
   callback_phone: string | null;
   created_at: string;
@@ -140,6 +141,16 @@ export interface SimulationResult {
   runs: { id: string; expected: string; detected: string[]; passed: boolean }[];
   passed: number;
   total: number;
+}
+
+export interface QualityMetric {
+  id: string;
+  name: string;
+  observed: number | null;
+  target: number | null;
+  unit: string | null;
+  sample_size: number;
+  meets: boolean | null;
 }
 
 const TOKEN_KEY = "envelock.access_token";
@@ -261,8 +272,27 @@ export const api = {
     ),
 
   me: () =>
-    request<{ email: string; role: string; tenant_id: string; is_admin: boolean }>(
-      "/api/v1/auth/me",
+    request<{
+      email: string;
+      role: string;
+      tenant_id: string;
+      is_admin: boolean;
+      phone: string | null;
+      phone_verified: boolean;
+    }>("/api/v1/auth/me"),
+
+  // Verified phone — a second, out-of-band channel for Critical alerts and
+  // recovery. The code is sent by SMS (surfaced in dev for local testing).
+  phoneStart: (phone: string) =>
+    request<{ status: string; delivered: boolean; dev_code?: string }>(
+      "/api/v1/auth/phone/start",
+      { method: "POST", body: JSON.stringify({ phone }) },
+    ),
+
+  phoneVerify: (code: string) =>
+    request<{ phone_verified: boolean; phone: string }>(
+      "/api/v1/auth/phone/verify",
+      { method: "POST", body: JSON.stringify({ code }) },
     ),
 
   // ── Tenant data ───────────────────────────────────────────────────────────
@@ -329,6 +359,58 @@ export const api = {
       imap_broker: Record<string, number | string>;
       notification_rungs: { rung: string; configured: boolean; metered: boolean }[];
     }>("/api/v1/status/channels"),
+
+  resolveAlert: (id: string, dismiss = false) =>
+    request<AlertRecord>(
+      `/api/v1/alerts/${id}/resolve${dismiss ? "?dismiss=true" : ""}`,
+      { method: "POST" },
+    ),
+
+  // ── Tier 1 OAuth connection ─────────────────────────────────────────────────
+  oauthProviders: () =>
+    request<{ configured: string[]; supported: string[] }>(
+      "/api/v1/connect/oauth/providers",
+    ),
+
+  oauthAuthorize: (provider: string, mailbox_address: string) =>
+    request<{ provider: string; authorize_url: string; state: string }>(
+      `/api/v1/connect/oauth/${provider}/authorize`,
+      { method: "POST", body: JSON.stringify({ mailbox_address }) },
+    ),
+
+  // ── Billing / payment gate ──────────────────────────────────────────────────
+  paymentProviders: () =>
+    request<{ configured: string[] }>("/api/v1/billing/providers"),
+
+  confirmPayment: (body: {
+    provider: string;
+    reference: string;
+    identifier: string;
+  }) =>
+    request<{
+      gate_passed: boolean;
+      trial_allowed: boolean;
+      trial_started: boolean;
+      trial_ends_at: string | null;
+      eligibility: string;
+      reason: string;
+      instrument: { provider: string; brand: string | null; last4: string | null };
+    }>("/api/v1/billing/confirm", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // ── Live governing metrics (PRD §15.4) ──────────────────────────────────────
+  qualityMetrics: () =>
+    request<{ tenant_id: string; metrics: QualityMetric[] }>(
+      "/api/v1/metrics/quality",
+    ),
+
+  runEscalations: () =>
+    request<{ escalated: unknown[]; count: number }>(
+      "/api/v1/escalations/run",
+      { method: "POST" },
+    ),
 
   health: () =>
     request<{ status: string; version: string; env: string }>("/health"),

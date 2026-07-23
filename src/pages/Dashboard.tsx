@@ -20,6 +20,7 @@ import {
   type AlertRecord,
   type MailboxRecord,
   type Oversight,
+  type QualityMetric,
   type SimulationResult,
   type Tier,
 } from "../lib/api";
@@ -227,6 +228,108 @@ function Simulation({ domain }: { domain: string }) {
   );
 }
 
+function OAuthConnect({ address }: { address: string }) {
+  const [providers, setProviders] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .oauthProviders()
+      .then((r) => live && setProviders(r.configured))
+      .catch(() => live && setProviders([]));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (!providers || providers.length === 0) return null;
+
+  async function connect(provider: string) {
+    setBusy(provider);
+    try {
+      const { authorize_url } = await api.oauthAuthorize(provider, address);
+      window.location.assign(authorize_url); // hand off to tenant consent
+    } catch {
+      setBusy(null);
+    }
+  }
+
+  const label: Record<string, string> = { microsoft: "Microsoft 365", google: "Google" };
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {providers.map((p) => (
+        <Button
+          key={p}
+          size="sm"
+          variant="line"
+          onClick={() => connect(p)}
+          disabled={busy !== null}
+        >
+          <Link2 size={12} aria-hidden /> Connect {label[p] ?? p}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+/* The two numbers that decide whether the product survives (PRD §15.4): if
+   Critical false positives climb, the interrupt gets muted; if detonation
+   fall-through climbs, so does COGS. Shown from live data, honestly blank until
+   there is any. */
+function GoverningMetrics() {
+  const [metrics, setMetrics] = useState<QualityMetric[] | null>(null);
+
+  useEffect(() => {
+    api
+      .qualityMetrics()
+      .then((r) => setMetrics(r.metrics))
+      .catch(() => setMetrics(null));
+  }, []);
+
+  if (!metrics) return null;
+
+  const fmt = (m: QualityMetric): string => {
+    if (m.observed === null) return "—";
+    return m.unit === "ratio"
+      ? `${(m.observed * 100).toFixed(1)}%`
+      : String(m.observed);
+  };
+
+  return (
+    <div className="panel p-5">
+      <h2 className="sect-label">Detection quality</h2>
+      <p className="fg-3 mt-1 text-xs leading-relaxed">
+        The two numbers that govern the product, measured live
+      </p>
+      <ul className="mt-4 space-y-2.5" role="list">
+        {metrics.map((m) => (
+          <li
+            key={m.id}
+            className="flex items-baseline justify-between gap-3 text-sm"
+          >
+            <span className="fg-2">{m.name}</span>
+            <span className="flex items-baseline gap-2">
+              <span
+                className={cn(
+                  "tnum font-mono font-semibold",
+                  m.meets === false && "text-red-500",
+                  m.meets === true && "accent",
+                )}
+              >
+                {fmt(m)}
+              </span>
+              <span className="fg-3 text-xs">
+                {m.observed === null ? "no data" : m.meets ? "on target" : "off target"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [mailboxes, setMailboxes] = useState<MailboxRecord[]>([]);
@@ -430,6 +533,9 @@ export default function Dashboard() {
                         {m.inactive_detections.length > 6 && " …"}
                       </p>
                     )}
+                    {!m.sources.some((s) => s === "graph_api" || s === "gmail_api") && (
+                      <OAuthConnect address={m.address} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -437,6 +543,8 @@ export default function Dashboard() {
           </div>
 
           <Simulation domain={domain === "your domain" ? "example.com" : domain} />
+
+          <GoverningMetrics />
 
           {stats && (
             <div className="panel p-5">

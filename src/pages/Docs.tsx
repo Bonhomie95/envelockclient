@@ -273,7 +273,7 @@ const SECTIONS: Section[] = [
           and every session for that user is ended.
         </P>
         <Code>{`POST /api/v1/auth/login
-{ "email": "you@acme.com.ng", "password": "..." }
+{ "email": "you@acme.com", "password": "..." }
 
 → { "mfa_required": true, "mfa_token": "..." }
 

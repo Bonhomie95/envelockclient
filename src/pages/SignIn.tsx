@@ -167,7 +167,7 @@ export default function SignIn() {
 
               <div>
                 <label htmlFor="password" className="block text-sm font-semibold">
-                  Password
+                  {mode === "signup" ? "Passphrase" : "Password"}
                 </label>
                 <input
                   id="password"
@@ -182,7 +182,10 @@ export default function SignIn() {
                   className="field mt-2"
                 />
                 {mode === "signup" && (
-                  <p className="fg-3 mt-2 text-xs">At least 12 characters.</p>
+                  <p className="fg-3 mt-2 text-xs">
+                    Use a passphrase — several unrelated words, 16+ characters. We
+                    reject common passwords, and MFA is mandatory on every account.
+                  </p>
                 )}
               </div>
 

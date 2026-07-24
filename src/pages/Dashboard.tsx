@@ -63,22 +63,25 @@ function AlertRow({
   alert,
   onAcknowledge,
   onQuarantine,
+  onResolve,
 }: {
   alert: AlertRecord;
   onAcknowledge: (id: string) => Promise<void>;
   onQuarantine: (id: string) => Promise<void>;
+  onResolve: (id: string, dismiss: boolean) => Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const Icon = iconFor(alert);
   const acked = alert.state !== "open";
 
-  async function run(action: "ack" | "quarantine") {
+  async function run(action: "ack" | "quarantine" | "fraud" | "dismiss") {
     setBusy(action);
     setNote(null);
     try {
       if (action === "ack") await onAcknowledge(alert.id);
-      else await onQuarantine(alert.id);
+      else if (action === "quarantine") await onQuarantine(alert.id);
+      else await onResolve(alert.id, action === "dismiss");
     } catch (e) {
       setNote(e instanceof ApiError ? e.message : "Action failed");
     } finally {
@@ -153,6 +156,25 @@ function AlertRow({
                   onClick={() => run("quarantine")}
                 >
                   QUARANTINE
+                </Button>
+                {/* Confirming real fraud reports the counterparty to the
+                    cross-tenant graph, protecting every other customer (E8). */}
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  disabled={busy !== null}
+                  onClick={() => run("fraud")}
+                  title="Confirm this was real fraud — warns every other tenant"
+                >
+                  CONFIRM FRAUD
+                </Button>
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  disabled={busy !== null}
+                  onClick={() => run("dismiss")}
+                >
+                  DISMISS
                 </Button>
               </>
             )}
@@ -383,6 +405,11 @@ export default function Dashboard() {
     await load();
   }
 
+  async function resolve(id: string, dismiss: boolean) {
+    await api.resolveAlert(id, dismiss);
+    await load();
+  }
+
   if (error === "signed-out" || !auth.signedIn) {
     return (
       <main className="shell py-24">
@@ -491,6 +518,7 @@ export default function Dashboard() {
                     alert={a}
                     onAcknowledge={acknowledge}
                     onQuarantine={quarantine}
+                    onResolve={resolve}
                   />
                 ))
               )}

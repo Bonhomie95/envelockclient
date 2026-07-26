@@ -4,13 +4,17 @@ import {
   Banknote,
   CheckCircle2,
   Fingerprint,
+  Forward,
   Globe,
   Inbox,
+  KeyRound,
   Link2,
   Loader2,
   PhoneCall,
   Play,
+  Plus,
   RefreshCw,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -18,12 +22,26 @@ import {
   api,
   auth,
   type AlertRecord,
+  type ConnectionPlan,
   type MailboxRecord,
   type Oversight,
   type QualityMetric,
   type SimulationResult,
+  type TenantInfo,
   type Tier,
 } from "../lib/api";
+
+// Sources that mean a mailbox's MAIL is actually being ingested (vs identity-only
+// signals like the sensor). Used to tell "connected" from "unconnected".
+const MAIL_SOURCES = new Set([
+  "graph_api",
+  "gmail_api",
+  "admin_api",
+  "imap_idle",
+  "imap_poll",
+  "forward_ingest",
+  "journal",
+]);
 import { Button, LevelChip, TierChip, cn } from "../components/primitives";
 import ConnectionAdvisor from "../components/ConnectionAdvisor";
 
@@ -250,47 +268,315 @@ function Simulation({ domain }: { domain: string }) {
   );
 }
 
-function OAuthConnect({ address }: { address: string }) {
-  const [providers, setProviders] = useState<string[] | null>(null);
+/* Connect a mailbox using the RIGHT method for its actual mail provider — detected
+   from the domain's MX records, not from whichever OAuth apps this deployment
+   happens to have configured. A Google/Microsoft domain gets one-click OAuth; any
+   other provider (ISP, custom domain) connects over IMAP with an app password, or
+   by forwarding a copy. This is the fix for "Connect Google" showing on a domain
+   that isn't on Google. */
+function MailboxConnect({
+  mailbox,
+  onConnected,
+}: {
+  mailbox: MailboxRecord;
+  onConnected: () => Promise<void>;
+}) {
+  const address = mailbox.address;
+  const emailDomain = address.split("@")[1] ?? "";
+  const [plan, setPlan] = useState<ConnectionPlan | null>(null);
+  const [configured, setConfigured] = useState<string[]>([]);
+  const [mode, setMode] = useState<"imap" | "forward" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // IMAP form
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState(993);
+  const [password, setPassword] = useState("");
+  const [ingest, setIngest] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
     api
+      .connect(emailDomain)
+      .then((p) => {
+        if (!live) return;
+        setPlan(p);
+        if (p.imap.host) setHost(p.imap.host);
+        setPort(p.imap.port || 993);
+      })
+      .catch(() => {});
+    api
       .oauthProviders()
-      .then((r) => live && setProviders(r.configured))
-      .catch(() => live && setProviders([]));
+      .then((r) => live && setConfigured(r.configured))
+      .catch(() => {});
     return () => {
       live = false;
     };
-  }, []);
+  }, [emailDomain]);
 
-  if (!providers || providers.length === 0) return null;
-
-  async function connect(provider: string) {
+  async function oauth(provider: string) {
     setBusy(provider);
     try {
       const { authorize_url } = await api.oauthAuthorize(provider, address);
-      window.location.assign(authorize_url); // hand off to tenant consent
-    } catch {
+      window.location.assign(authorize_url);
+    } catch (e) {
+      setBusy(null);
+      setNote(e instanceof ApiError ? e.message : "Could not start connection.");
+    }
+  }
+
+  async function submitImap() {
+    if (!host || !password) {
+      setNote("Enter the IMAP host and the mailbox password.");
+      return;
+    }
+    setBusy("imap");
+    setNote(null);
+    try {
+      await api.connectImap(mailbox.id, { imap_host: host, imap_port: port, password });
+      setPassword("");
+      setMode(null);
+      await onConnected();
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not connect.");
+    } finally {
       setBusy(null);
     }
   }
 
-  const label: Record<string, string> = { microsoft: "Microsoft 365", google: "Google" };
+  async function openForward() {
+    setMode("forward");
+    if (ingest === null) {
+      try {
+        setIngest((await api.ingestAddress()).ingest_address);
+      } catch {
+        setIngest("");
+      }
+    }
+  }
+
+  const rec = plan?.recommended.id ?? "";
+  const providerName = plan?.provider.name ?? null;
+  const isMs = rec === "oauth_microsoft" && configured.includes("microsoft");
+  const isGoogle = rec === "oauth_google" && configured.includes("google");
+
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {providers.map((p) => (
+    <div className="mt-2.5">
+      {providerName && plan?.detected && (
+        <p className="fg-3 mono-xs mb-2">DETECTED: {providerName}</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {/* One-click OAuth only when the domain really is on that provider. */}
+        {isMs && (
+          <Button size="sm" variant="line" disabled={busy !== null} onClick={() => oauth("microsoft")}>
+            <Link2 size={12} aria-hidden /> Connect Microsoft&nbsp;365
+          </Button>
+        )}
+        {isGoogle && (
+          <Button size="sm" variant="line" disabled={busy !== null} onClick={() => oauth("google")}>
+            <Link2 size={12} aria-hidden /> Connect Google
+          </Button>
+        )}
+        {/* IMAP works on any provider — the universal path for ISP / custom mail. */}
         <Button
-          key={p}
           size="sm"
-          variant="line"
-          onClick={() => connect(p)}
+          variant={isMs || isGoogle ? "quiet" : "line"}
           disabled={busy !== null}
+          onClick={() => setMode(mode === "imap" ? null : "imap")}
         >
-          <Link2 size={12} aria-hidden /> Connect {label[p] ?? p}
+          <KeyRound size={12} aria-hidden /> Connect via IMAP
         </Button>
-      ))}
+        <Button size="sm" variant="quiet" disabled={busy !== null} onClick={openForward}>
+          <Forward size={12} aria-hidden /> Forwarding
+        </Button>
+      </div>
+
+      {mode === "imap" && (
+        <div className="mt-3 space-y-2 border-l-2 border-[var(--accent)] pl-3">
+          <p className="fg-3 text-xs leading-relaxed">
+            Use an <span className="font-semibold">app-specific password</span> where
+            your provider offers one. Stored encrypted; we never show it again.
+          </p>
+          <input
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            placeholder="imap.yourprovider.com"
+            className="field text-sm"
+            autoComplete="off"
+          />
+          <div className="flex gap-2">
+            <input
+              value={port}
+              onChange={(e) => setPort(Number(e.target.value) || 993)}
+              inputMode="numeric"
+              className="field w-24 text-sm"
+              aria-label="IMAP port"
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="mailbox password"
+              className="field flex-1 text-sm"
+              autoComplete="off"
+            />
+          </div>
+          <Button size="sm" variant="accent" disabled={busy !== null} onClick={submitImap}>
+            {busy === "imap" ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null}{" "}
+            CONNECT
+          </Button>
+        </div>
+      )}
+
+      {mode === "forward" && (
+        <div className="mt-3 border-l-2 border-[var(--accent)] pl-3">
+          <p className="fg-3 text-xs leading-relaxed">
+            Forward a copy of inbound mail to this address (works on every provider,
+            alert-only — no quarantine):
+          </p>
+          <code className="font-mono mt-1.5 block text-xs break-all">
+            {ingest || "…"}
+          </code>
+        </div>
+      )}
+
+      {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
+    </div>
+  );
+}
+
+/* Plan / trial state at a glance. Guard is free forever (no countdown); a paid
+   trial shows days remaining and turns amber, then red, as it runs out. */
+function PlanBadge({ tenant }: { tenant: TenantInfo }) {
+  const { plan, trial } = tenant;
+  let text: string;
+  let tone = "border-[var(--rule)] fg-2";
+
+  if (trial.active && trial.days_left !== null) {
+    text = `TRIAL · ${trial.days_left} DAY${trial.days_left === 1 ? "" : "S"} LEFT`;
+    tone =
+      trial.days_left <= 3
+        ? "border-[var(--danger)] text-[var(--danger)]"
+        : "border-[var(--warn,#d97706)] text-[var(--warn,#d97706)]";
+  } else if (trial.ends_at && !trial.active) {
+    text = "TRIAL ENDED";
+    tone = "border-[var(--danger)] text-[var(--danger)]";
+  } else if (plan === "guard") {
+    text = "GUARD · FREE";
+    tone = "border-[var(--accent)] accent";
+  } else {
+    text = `${plan.toUpperCase()}${trial.payment_method_ok ? "" : " · SET UP BILLING"}`;
+  }
+
+  return (
+    <span
+      className={cn(
+        "font-mono rounded border px-2 py-0.5 text-[10px] font-semibold tracking-wide",
+        tone,
+      )}
+      title={
+        trial.ends_at
+          ? `Trial ends ${new Date(trial.ends_at).toLocaleDateString()}`
+          : plan === "guard"
+            ? "Guard is free forever — Channel-3 domain & brand monitoring."
+            : undefined
+      }
+    >
+      {text}
+    </span>
+  );
+}
+
+/* Add a mailbox to the tenant — how IT brings other departments (finance, execs,
+   accounts payable) under protection. Whole-domain coverage is the goal, so this
+   is deliberately low-friction: add the address, then connect it. */
+function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [address, setAddress] = useState("");
+  const [klass, setKlass] = useState<"protected" | "monitored">("protected");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function submit() {
+    if (!address.includes("@")) {
+      setNote("Enter a full email address.");
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    try {
+      await api.addMailbox({ address: address.trim(), mailbox_class: klass, sources: [] });
+      setAddress("");
+      setOpen(false);
+      await onAdded();
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not add mailbox.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="border-t p-4">
+        <Button size="sm" variant="line" className="w-full" onClick={() => setOpen(true)}>
+          <Plus size={13} aria-hidden /> ADD MAILBOX
+        </Button>
+        <p className="fg-3 mt-2 text-xs leading-relaxed">
+          Bring finance, executives and accounts payable under protection.
+          Microsoft&nbsp;365 and Google import the whole organisation with one
+          admin consent; other providers connect per mailbox.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t p-4">
+      <label className="block text-xs font-semibold" htmlFor="new-mailbox">
+        Mailbox address
+      </label>
+      <input
+        id="new-mailbox"
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+        placeholder="accounts@yourcompany.com"
+        autoComplete="off"
+        className="field mt-1.5 text-sm"
+      />
+      <div className="mt-2 flex gap-px" role="group" aria-label="Mailbox class">
+        {(["protected", "monitored"] as const).map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setKlass(c)}
+            aria-pressed={klass === c}
+            className={cn(
+              "font-mono flex-1 cursor-pointer border px-2 py-1.5 text-[11px] tracking-wide uppercase transition-colors",
+              klass === c
+                ? "accent border-[var(--accent)]"
+                : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
+            )}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <p className="fg-3 mt-1.5 text-xs">
+        {klass === "protected"
+          ? "Full content + fraud detection — finance, execs, anyone who touches money."
+          : "Account-takeover detection only — cheaper, for everyone else."}
+      </p>
+      {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" variant="accent" onClick={submit} disabled={busy}>
+          {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null} ADD
+        </Button>
+        <Button size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
+          CANCEL
+        </Button>
+      </div>
     </div>
   );
 }
@@ -355,6 +641,7 @@ function GoverningMetrics() {
 export default function Dashboard() {
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [mailboxes, setMailboxes] = useState<MailboxRecord[]>([]);
+  const [tenant, setTenant] = useState<TenantInfo | null>(null);
   const [stats, setStats] = useState<Oversight | null>(null);
   const [filter, setFilter] = useState<"open" | "all">("open");
   const [loading, setLoading] = useState(true);
@@ -364,9 +651,14 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [a, m] = await Promise.all([api.alerts(), api.mailboxes()]);
+      const [a, m, t] = await Promise.all([
+        api.alerts(),
+        api.mailboxes(),
+        api.tenant(),
+      ]);
       setAlerts(a.alerts);
       setMailboxes(m.mailboxes);
+      setTenant(t);
       try {
         setStats(await api.oversight());
       } catch {
@@ -410,6 +702,16 @@ export default function Dashboard() {
     await load();
   }
 
+  async function removeMailbox(id: string) {
+    if (!window.confirm("Remove this mailbox and its stored credential?")) return;
+    try {
+      await api.removeMailbox(id);
+      await load();
+    } catch {
+      /* surfaced by the queue error banner on next load */
+    }
+  }
+
   if (error === "signed-out" || !auth.signedIn) {
     return (
       <main className="shell py-24">
@@ -428,22 +730,33 @@ export default function Dashboard() {
     );
   }
 
-  const domain = mailboxes[0]?.address.split("@")[1] ?? "your domain";
+  // The tenant's own registered domain — falls back to a connected mailbox's
+  // domain only if the tenant record somehow has none.
+  const resolvedDomain =
+    tenant?.primary_domain ?? mailboxes[0]?.address.split("@")[1] ?? null;
+  const hasDomain = resolvedDomain !== null;
+  const domain = resolvedDomain ?? "no domain yet";
+  const domainCount = tenant?.domains.length ?? stats?.domains ?? 0;
 
   return (
     <main>
       <div className="border-b">
         <div className="shell flex flex-wrap items-center gap-x-8 gap-y-4 py-5">
           <div>
-            <span className="sect-label">Tenant</span>
-            <p className="mt-1 text-sm font-semibold">{domain}</p>
+            <span className="sect-label">
+              {tenant?.name && tenant.name !== domain ? tenant.name : "Tenant"}
+            </span>
+            <div className="mt-1 flex items-center gap-2.5">
+              <p className="text-sm font-semibold">{domain}</p>
+              {tenant && <PlanBadge tenant={tenant} />}
+            </div>
           </div>
           <div className="ml-auto flex items-center gap-8">
             {[
               ["OPEN", String(open.length), critical > 0],
               ["CRITICAL", String(critical), critical > 0],
               ["MAILBOXES", String(mailboxes.length), false],
-              ["DOMAINS", String(stats?.domains ?? 0), false],
+              ["DOMAINS", String(domainCount), false],
             ].map(([label, value, hot]) => (
               <div key={label as string}>
                 <div
@@ -527,7 +840,7 @@ export default function Dashboard() {
         </section>
 
         <aside className="col-span-12 mt-6 space-y-6 lg:col-span-4 lg:mt-0">
-          <ConnectionAdvisor defaultDomain={domain === "your domain" ? "" : domain} />
+          <ConnectionAdvisor defaultDomain={hasDomain ? domain : ""} />
 
           <div className="panel">
             <div className="border-b px-5 py-3.5">
@@ -537,40 +850,52 @@ export default function Dashboard() {
               </p>
             </div>
             {mailboxes.length === 0 ? (
-              <p className="fg-3 p-5 text-xs leading-relaxed">
-                No mailboxes connected yet. The connection advisor above reads your
-                MX records and gives your IT team the exact steps.
+              <p className="fg-3 px-5 pt-5 text-xs leading-relaxed">
+                No mailboxes connected yet. Add the ones that touch money first —
+                finance, executives, accounts payable — then connect them below.
               </p>
             ) : (
               <ul className="divide-y" role="list">
-                {mailboxes.map((m) => (
-                  <li key={m.id} className="px-5 py-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{m.address}</p>
-                        <p className="fg-3 mono-xs mt-0.5">
-                          {(m.sources[0] ?? "unconnected").toUpperCase()} ·{" "}
-                          {m.mailbox_class.toUpperCase()}
-                        </p>
+                {mailboxes.map((m) => {
+                  const connected = m.sources.some((s) => MAIL_SOURCES.has(s));
+                  return (
+                    <li key={m.id} className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{m.address}</p>
+                          <p className="fg-3 mono-xs mt-0.5">
+                            {connected
+                              ? m.sources.filter((s) => MAIL_SOURCES.has(s))[0].toUpperCase()
+                              : "UNCONNECTED"}{" "}
+                            · {m.mailbox_class.toUpperCase()}
+                          </p>
+                        </div>
+                        <LevelChip level={m.protection_level} />
+                        <button
+                          onClick={() => void removeMailbox(m.id)}
+                          aria-label={`Remove ${m.address}`}
+                          title="Remove mailbox"
+                          className="fg-3 cursor-pointer p-1 transition-colors hover:text-[var(--danger)]"
+                        >
+                          <Trash2 size={14} aria-hidden />
+                        </button>
                       </div>
-                      <LevelChip level={m.protection_level} />
-                    </div>
-                    {m.inactive_detections.length > 0 && (
-                      <p className="fg-3 mono-xs mt-2">
-                        INACTIVE: {m.inactive_detections.slice(0, 6).join(" ")}
-                        {m.inactive_detections.length > 6 && " …"}
-                      </p>
-                    )}
-                    {!m.sources.some((s) => s === "graph_api" || s === "gmail_api") && (
-                      <OAuthConnect address={m.address} />
-                    )}
-                  </li>
-                ))}
+                      {m.inactive_detections.length > 0 && (
+                        <p className="fg-3 mono-xs mt-2">
+                          INACTIVE: {m.inactive_detections.slice(0, 6).join(" ")}
+                          {m.inactive_detections.length > 6 && " …"}
+                        </p>
+                      )}
+                      {!connected && <MailboxConnect mailbox={m} onConnected={load} />}
+                    </li>
+                  );
+                })}
               </ul>
             )}
+            <AddMailbox onAdded={load} />
           </div>
 
-          <Simulation domain={domain === "your domain" ? "example.com" : domain} />
+          <Simulation domain={hasDomain ? domain : "example.com"} />
 
           <GoverningMetrics />
 

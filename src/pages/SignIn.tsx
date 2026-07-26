@@ -9,8 +9,12 @@ import {
   Lock,
   ShieldCheck,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { ApiError, api, auth } from "../lib/api";
+import { checkPassphrase, isLikelyDisposableEmail } from "../lib/passphrase";
 import { Button, cn } from "../components/primitives";
+
+const STRENGTH_COLOR = ["#dc2626", "#dc2626", "#d97706", "#16a34a", "#16a34a"];
 
 type Step = "credentials" | "mfa-setup" | "mfa-verify" | "recovery";
 
@@ -26,6 +30,8 @@ export default function SignIn() {
 
   const [mfaToken, setMfaToken] = useState("");
   const [secret, setSecret] = useState("");
+  const [otpauthUri, setOtpauthUri] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
   const [recovery, setRecovery] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
 
@@ -54,6 +60,7 @@ export default function SignIn() {
       if (login.mfa_setup_required) {
         const setup = await api.mfaSetup(login.mfa_token);
         setSecret(setup.secret);
+        setOtpauthUri(setup.otpauth_uri);
         setStep("mfa-setup");
       } else {
         setStep("mfa-verify");
@@ -163,6 +170,12 @@ export default function SignIn() {
                   required
                   className="field mt-2"
                 />
+                {mode === "signup" && isLikelyDisposableEmail(email) && (
+                  <p className="mt-2 text-xs font-medium text-red-600">
+                    Disposable email addresses aren't allowed — use a permanent
+                    inbox so you can receive fraud alerts and account recovery.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -181,12 +194,42 @@ export default function SignIn() {
                   required
                   className="field mt-2"
                 />
-                {mode === "signup" && (
-                  <p className="fg-3 mt-2 text-xs">
-                    Use a passphrase — several unrelated words, 16+ characters. We
-                    reject common passwords, and MFA is mandatory on every account.
-                  </p>
-                )}
+                {mode === "signup" &&
+                  (() => {
+                    const s = checkPassphrase(password);
+                    if (!password)
+                      return (
+                        <p className="fg-3 mt-2 text-xs">
+                          Use a passphrase — several unrelated words, 16+
+                          characters. MFA is mandatory on every account.
+                        </p>
+                      );
+                    return (
+                      <div className="mt-2" aria-live="polite">
+                        <div className="flex gap-1" aria-hidden>
+                          {[0, 1, 2, 3].map((i) => (
+                            <span
+                              key={i}
+                              className="h-1 flex-1 rounded-full transition-colors"
+                              style={{
+                                backgroundColor:
+                                  i < s.score
+                                    ? STRENGTH_COLOR[s.score]
+                                    : "var(--border, #e2e8f0)",
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <p
+                          className="mt-1.5 text-xs font-medium"
+                          style={{ color: s.ok ? "#16a34a" : STRENGTH_COLOR[s.score] }}
+                        >
+                          {s.label}
+                          {s.hint ? ` — ${s.hint}` : ""}
+                        </p>
+                      </div>
+                    );
+                  })()}
               </div>
 
               <Button
@@ -194,7 +237,12 @@ export default function SignIn() {
                 variant="accent"
                 size="lg"
                 className="w-full"
-                disabled={busy}
+                disabled={
+                  busy ||
+                  (mode === "signup" &&
+                    (!checkPassphrase(password).ok ||
+                      isLikelyDisposableEmail(email)))
+                }
               >
                 {busy ? (
                   <>
@@ -230,30 +278,49 @@ export default function SignIn() {
           <>
             <h1 className="headline mt-5 text-balance">Set up two-factor.</h1>
             <p className="lede mt-4 text-base">
-              Mandatory, not optional. A security product whose own accounts rely
-              on a password alone is indefensible.
+              Scan this with your authenticator app (Google Authenticator, Authy,
+              1Password, …). MFA is mandatory on every account.
             </p>
 
             <div className="panel mt-8 p-5">
-              <span className="sect-label">Secret key</span>
-              <div className="mt-3 flex items-center gap-3">
-                <code className="font-mono flex-1 text-sm break-all">{secret}</code>
-                <Button size="sm" variant="line" onClick={copySecret}>
-                  {copied ? (
-                    <>
-                      <Check size={12} aria-hidden /> COPIED
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={12} aria-hidden /> COPY
-                    </>
-                  )}
-                </Button>
+              <div className="flex flex-col items-center gap-4">
+                {otpauthUri ? (
+                  <div className="rounded-lg bg-white p-3">
+                    <QRCodeSVG value={otpauthUri} size={168} marginSize={0} />
+                  </div>
+                ) : null}
+                <p className="fg-3 text-center text-xs leading-relaxed">
+                  After scanning, enter the 6-digit code your app shows below.
+                </p>
               </div>
-              <p className="fg-3 mt-3 text-xs leading-relaxed">
-                Add it to your authenticator app, then enter the 6-digit code it
-                shows.
-              </p>
+
+              <div className="mt-4 border-t pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowSecret((v) => !v)}
+                  className="fg-2 cursor-pointer text-xs font-semibold underline underline-offset-4"
+                >
+                  {showSecret ? "Hide setup key" : "Can't scan? Enter a key instead"}
+                </button>
+                {showSecret && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <code className="font-mono flex-1 text-sm break-all">
+                      {secret}
+                    </code>
+                    <Button size="sm" variant="line" onClick={copySecret}>
+                      {copied ? (
+                        <>
+                          <Check size={12} aria-hidden /> COPIED
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={12} aria-hidden /> COPY
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <form onSubmit={submitCode} className="mt-6 space-y-4">

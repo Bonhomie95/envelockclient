@@ -1,12 +1,29 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { Menu, Moon, Sun, X } from "lucide-react";
+import {
+  Link,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+import {
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Moon,
+  Sun,
+  UserRound,
+  X,
+} from "lucide-react";
+import { api, auth } from "./lib/api";
 import { Button, cn } from "./components/primitives";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Analyse from "./pages/Analyse";
 import Docs from "./pages/Docs";
 import SignIn from "./pages/SignIn";
+import Profile from "./pages/Profile";
 
 function Mark({ size = 26 }: { size?: number }) {
   return (
@@ -67,7 +84,22 @@ const NAV = [
 function Header() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   useEffect(() => setOpen(false), [pathname]);
+
+  // Re-read on every navigation (useLocation re-renders the header), so signing
+  // in or out flips the controls immediately.
+  const signedIn = auth.signedIn;
+
+  async function signOut() {
+    try {
+      await api.logout();
+    } catch {
+      /* revoke best-effort; clearing the local token is what matters */
+    }
+    auth.clear();
+    navigate("/");
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b bg-[var(--bg)]/92 backdrop-blur">
@@ -90,15 +122,46 @@ function Header() {
               {i.label}
             </NavLink>
           ))}
+          {signedIn && (
+            <NavLink
+              to="/dashboard"
+              className={({ isActive }) =>
+                cn(
+                  "font-mono px-3 py-2 text-xs font-medium tracking-wide uppercase transition-colors",
+                  isActive ? "accent" : "fg-2 hover:text-[var(--fg)]",
+                )
+              }
+            >
+              Dashboard
+            </NavLink>
+          )}
         </nav>
 
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />
-          <Link to="/signin" className="hidden md:block">
-            <Button variant="line" size="sm">
-              SIGN IN
-            </Button>
-          </Link>
+          {signedIn ? (
+            <>
+              <Link to="/profile" className="hidden md:block">
+                <Button variant="quiet" size="sm" aria-label="Profile">
+                  <UserRound size={15} aria-hidden />
+                </Button>
+              </Link>
+              <Button
+                variant="line"
+                size="sm"
+                className="hidden md:flex"
+                onClick={signOut}
+              >
+                <LogOut size={13} aria-hidden /> SIGN OUT
+              </Button>
+            </>
+          ) : (
+            <Link to="/signin" className="hidden md:block">
+              <Button variant="line" size="sm">
+                SIGN IN
+              </Button>
+            </Link>
+          )}
           <button
             onClick={() => setOpen((o) => !o)}
             aria-label={open ? "Close menu" : "Open menu"}
@@ -132,11 +195,43 @@ function Header() {
                 {i.label}
               </NavLink>
             ))}
-            <Link to="/signin" className="py-4">
-              <Button variant="accent" className="w-full">
-                SIGN IN
-              </Button>
-            </Link>
+            {signedIn ? (
+              <>
+                <NavLink
+                  to="/dashboard"
+                  className={({ isActive }) =>
+                    cn(
+                      "font-mono flex items-center gap-2 py-4 text-sm font-medium tracking-wide uppercase",
+                      isActive ? "accent" : "fg-2",
+                    )
+                  }
+                >
+                  <LayoutDashboard size={14} aria-hidden /> Dashboard
+                </NavLink>
+                <NavLink
+                  to="/profile"
+                  className={({ isActive }) =>
+                    cn(
+                      "font-mono flex items-center gap-2 py-4 text-sm font-medium tracking-wide uppercase",
+                      isActive ? "accent" : "fg-2",
+                    )
+                  }
+                >
+                  <UserRound size={14} aria-hidden /> Profile
+                </NavLink>
+                <button onClick={signOut} className="py-4 text-left">
+                  <Button variant="line" className="w-full">
+                    <LogOut size={13} aria-hidden /> SIGN OUT
+                  </Button>
+                </button>
+              </>
+            ) : (
+              <Link to="/signin" className="py-4">
+                <Button variant="accent" className="w-full">
+                  SIGN IN
+                </Button>
+              </Link>
+            )}
           </div>
         </nav>
       )}
@@ -270,6 +365,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/analyse" element={<Analyse />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/signin" element={<SignIn />} />

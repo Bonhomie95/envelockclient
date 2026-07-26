@@ -143,6 +143,26 @@ export interface SimulationResult {
   total: number;
 }
 
+export interface TenantInfo {
+  tenant_id: string;
+  name: string | null;
+  plan: string;
+  trial: {
+    started_at: string | null;
+    ends_at: string | null;
+    days_left: number | null;
+    active: boolean;
+    payment_method_ok: boolean;
+  };
+  domains: {
+    name: string;
+    registrable_domain: string;
+    verified: boolean;
+    is_defensive: boolean;
+  }[];
+  primary_domain: string | null;
+}
+
 export interface QualityMetric {
   id: string;
   name: string;
@@ -194,7 +214,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
     try {
-      detail = (await res.json()).detail ?? detail;
+      const body = await res.json();
+      const d = body?.detail;
+      if (typeof d === "string") {
+        detail = d;
+      } else if (Array.isArray(d)) {
+        // FastAPI validation errors are a list of {loc, msg, type}.
+        detail = d.map((e) => e?.msg ?? String(e)).join("; ") || detail;
+      } else if (d) {
+        detail = JSON.stringify(d);
+      }
+      // Make throttling human: "try again in ~N minutes" beats a bare message.
+      if (res.status === 429) {
+        const secs = Number(body?.retry_after ?? res.headers.get("Retry-After"));
+        if (Number.isFinite(secs) && secs > 0) {
+          const mins = Math.ceil(secs / 60);
+          detail = `Too many attempts. Try again in about ${
+            mins <= 1 ? "a minute" : `${mins} minutes`
+          }.`;
+        } else {
+          detail = "Too many attempts. Please wait a little and try again.";
+        }
+      }
     } catch {
       /* non-JSON error body */
     }
@@ -262,7 +303,7 @@ export const api = {
   mfaSetup: (mfaToken: string) =>
     request<{ secret: string; otpauth_uri: string }>("/api/v1/auth/mfa/setup", {
       method: "POST",
-      body: JSON.stringify({ refresh_token: mfaToken }),
+      body: JSON.stringify({ token: mfaToken }),
     }),
 
   mfaVerify: (body: { mfa_token: string; code: string }) =>
@@ -280,6 +321,9 @@ export const api = {
       phone: string | null;
       phone_verified: boolean;
     }>("/api/v1/auth/me"),
+
+  logout: () =>
+    request<{ status: string }>("/api/v1/auth/logout", { method: "POST" }),
 
   // Verified phone — a second, out-of-band channel for Critical alerts and
   // recovery. The code is sent by SMS (surfaced in dev for local testing).
@@ -301,6 +345,8 @@ export const api = {
       "/api/v1/tenants/bootstrap",
       { method: "POST", body: JSON.stringify(body) },
     ),
+
+  tenant: () => request<TenantInfo>("/api/v1/tenant"),
 
   alerts: (state?: string) =>
     request<{ alerts: AlertRecord[]; count: number }>(
@@ -327,6 +373,29 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  connectImap: (
+    mailboxId: string,
+    body: { imap_host: string; imap_port: number; password: string },
+  ) =>
+    request<MailboxRecord>(`/api/v1/mailboxes/${mailboxId}/connect/imap`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  removeMailbox: (mailboxId: string) =>
+    request<{ removed: boolean; address: string }>(
+      `/api/v1/mailboxes/${mailboxId}`,
+      { method: "DELETE" },
+    ),
+
+  ingestAddress: () =>
+    request<{
+      ingest_address: string;
+      steps: string[];
+      warning: string;
+      limitation: string;
+    }>("/api/v1/ingest-address"),
 
   oversight: () => request<Oversight>("/api/v1/oversight"),
 

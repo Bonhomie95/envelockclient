@@ -147,6 +147,8 @@ export interface TenantInfo {
   tenant_id: string;
   name: string | null;
   plan: string;
+  subscribed_plan?: string;
+  trial_ended?: boolean;
   trial: {
     started_at: string | null;
     ends_at: string | null;
@@ -391,6 +393,17 @@ export const api = {
     sources: string[];
   }) =>
     request<MailboxRecord>("/api/v1/mailboxes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  addMailboxesBulk: (body: { addresses: string[]; mailbox_class: string }) =>
+    request<{
+      created: MailboxRecord[];
+      skipped: { address: string; reason: string }[];
+      created_count: number;
+      skipped_count: number;
+    }>("/api/v1/mailboxes/bulk", {
       method: "POST",
       body: JSON.stringify(body),
     }),

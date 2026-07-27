@@ -154,7 +154,7 @@ export default function SignIn() {
             <p className="lede mt-4 text-base">
               {mode === "signin"
                 ? "Your alert queue, mailbox coverage and audit trail."
-                : "Guard is free forever and needs no card."}
+                : "Your full-plan trial starts today — no card needed."}
             </p>
 
             <form onSubmit={submitCredentials} className="mt-10 space-y-5">
@@ -495,8 +495,8 @@ export default function SignIn() {
                 "One click on Microsoft or Google. One forwarding rule anywhere else. Nothing installed.",
               ],
               [
-                "Add a payment method",
-                "Only when you connect a mailbox — never before. The trial starts once the connection is live, not at signup.",
+                "Add a card only to keep it",
+                "Your full-plan trial starts the moment you sign up — no card needed. Add one any time before it ends to stay protected; if you don't, you drop to Guard (free), never locked out.",
               ],
             ].map(([h, b], i) => (
               <li key={h} className="flex gap-5 py-5 first:pt-0 last:pb-0">

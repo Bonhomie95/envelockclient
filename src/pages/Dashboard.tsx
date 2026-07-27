@@ -461,18 +461,24 @@ function PlanBadge({ tenant }: { tenant: TenantInfo }) {
   let text: string;
   let tone = "border-[var(--rule)] fg-2";
 
+  let title: string | undefined;
+
   if (trial.active && trial.days_left !== null) {
     text = `TRIAL · ${trial.days_left} DAY${trial.days_left === 1 ? "" : "S"} LEFT`;
     tone =
       trial.days_left <= 3
         ? "border-[var(--danger)] text-[var(--danger)]"
         : "border-[var(--warn,#d97706)] text-[var(--warn,#d97706)]";
-  } else if (trial.ends_at && !trial.active) {
-    text = "TRIAL ENDED";
-    tone = "border-[var(--danger)] text-[var(--danger)]";
+    const top = (tenant.subscribed_plan ?? "complete").toUpperCase();
+    title = `${top} plan free until ${new Date(trial.ends_at!).toLocaleDateString()}. Add billing to keep it.`;
+  } else if (tenant.trial_ended) {
+    text = "TRIAL ENDED · ON GUARD";
+    tone = "border-[var(--warn,#d97706)] text-[var(--warn,#d97706)]";
+    title = "Your trial ended — now on Guard (free). Add billing to restore full protection.";
   } else if (plan === "guard") {
     text = "GUARD · FREE";
     tone = "border-[var(--accent)] accent";
+    title = "Guard is free forever — Channel-3 domain & brand monitoring.";
   } else {
     text = `${plan.toUpperCase()}${trial.payment_method_ok ? "" : " · SET UP BILLING"}`;
   }
@@ -483,30 +489,78 @@ function PlanBadge({ tenant }: { tenant: TenantInfo }) {
         "font-mono rounded border px-2 py-0.5 text-[10px] font-semibold tracking-wide",
         tone,
       )}
-      title={
-        trial.ends_at
-          ? `Trial ends ${new Date(trial.ends_at).toLocaleDateString()}`
-          : plan === "guard"
-            ? "Guard is free forever — Channel-3 domain & brand monitoring."
-            : undefined
-      }
+      title={title}
     >
       {text}
     </span>
   );
 }
 
-/* Add a mailbox to the tenant — how IT brings other departments (finance, execs,
-   accounts payable) under protection. Whole-domain coverage is the goal, so this
-   is deliberately low-friction: add the address, then connect it. */
+/* Split a pasted blob of addresses on commas, spaces or new lines — however IT
+   copied them out of a spreadsheet or admin console. */
+function parseAddresses(blob: string): string[] {
+  return Array.from(
+    new Set(
+      blob
+        .split(/[\s,;]+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function ClassPicker({
+  klass,
+  onChange,
+}: {
+  klass: "protected" | "monitored";
+  onChange: (c: "protected" | "monitored") => void;
+}) {
+  return (
+    <>
+      <div className="flex gap-px" role="group" aria-label="Mailbox class">
+        {(["protected", "monitored"] as const).map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onChange(c)}
+            aria-pressed={klass === c}
+            className={cn(
+              "font-mono flex-1 cursor-pointer border px-2 py-1.5 text-[11px] tracking-wide uppercase transition-colors",
+              klass === c
+                ? "accent border-[var(--accent)]"
+                : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
+            )}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <p className="fg-3 mt-1.5 text-xs">
+        {klass === "protected"
+          ? "Full content + fraud detection — finance, execs, anyone who touches money."
+          : "Account-takeover detection only — cheaper, for everyone else."}
+      </p>
+    </>
+  );
+}
+
+/* Add mailboxes to the tenant — how IT brings whole departments under protection.
+   A 50-seat domain is not added one box at a time, so this defaults to a bulk
+   paste; a single-address mode stays for the one-off. */
 function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"many" | "one">("many");
   const [address, setAddress] = useState("");
+  const [blob, setBlob] = useState("");
   const [klass, setKlass] = useState<"protected" | "monitored">("protected");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [result, setResult] = useState<{ added: number; skipped: number } | null>(null);
 
-  async function submit() {
+  const parsed = mode === "many" ? parseAddresses(blob) : [];
+
+  async function submitOne() {
     if (!address.includes("@")) {
       setNote("Enter a full email address.");
       return;
@@ -525,16 +579,36 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
     }
   }
 
+  async function submitMany() {
+    if (parsed.length === 0) {
+      setNote("Paste one or more email addresses.");
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    setResult(null);
+    try {
+      const r = await api.addMailboxesBulk({ addresses: parsed, mailbox_class: klass });
+      setResult({ added: r.created_count, skipped: r.skipped_count });
+      setBlob("");
+      await onAdded();
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not add mailboxes.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!open) {
     return (
       <div className="border-t p-4">
         <Button size="sm" variant="line" className="w-full" onClick={() => setOpen(true)}>
-          <Plus size={13} aria-hidden /> ADD MAILBOX
+          <Plus size={13} aria-hidden /> ADD MAILBOXES
         </Button>
         <p className="fg-3 mt-2 text-xs leading-relaxed">
-          Bring finance, executives and accounts payable under protection.
-          Microsoft&nbsp;365 and Google import the whole organisation with one
-          admin consent; other providers connect per mailbox.
+          Paste your whole finance team or the full domain at once.
+          Microsoft&nbsp;365 and Google can import the entire organisation with one
+          admin consent; other providers connect per mailbox after adding.
         </p>
       </div>
     );
@@ -542,47 +616,94 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
 
   return (
     <div className="border-t p-4">
-      <label className="block text-xs font-semibold" htmlFor="new-mailbox">
-        Mailbox address
-      </label>
-      <input
-        id="new-mailbox"
-        value={address}
-        onChange={(e) => setAddress(e.target.value)}
-        placeholder="accounts@yourcompany.com"
-        autoComplete="off"
-        className="field mt-1.5 text-sm"
-      />
-      <div className="mt-2 flex gap-px" role="group" aria-label="Mailbox class">
-        {(["protected", "monitored"] as const).map((c) => (
+      <div className="mb-3 flex gap-px" role="group" aria-label="Add mode">
+        {(["many", "one"] as const).map((m) => (
           <button
-            key={c}
+            key={m}
             type="button"
-            onClick={() => setKlass(c)}
-            aria-pressed={klass === c}
+            onClick={() => {
+              setMode(m);
+              setNote(null);
+              setResult(null);
+            }}
+            aria-pressed={mode === m}
             className={cn(
               "font-mono flex-1 cursor-pointer border px-2 py-1.5 text-[11px] tracking-wide uppercase transition-colors",
-              klass === c
+              mode === m
                 ? "accent border-[var(--accent)]"
                 : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
             )}
           >
-            {c}
+            {m === "many" ? "Paste many" : "One address"}
           </button>
         ))}
       </div>
-      <p className="fg-3 mt-1.5 text-xs">
-        {klass === "protected"
-          ? "Full content + fraud detection — finance, execs, anyone who touches money."
-          : "Account-takeover detection only — cheaper, for everyone else."}
-      </p>
+
+      {mode === "many" ? (
+        <>
+          <label className="block text-xs font-semibold" htmlFor="bulk-mailboxes">
+            Email addresses
+          </label>
+          <textarea
+            id="bulk-mailboxes"
+            value={blob}
+            onChange={(e) => setBlob(e.target.value)}
+            rows={5}
+            placeholder={"finance@yourcompany.com\nexecs@yourcompany.com\naccounts@yourcompany.com"}
+            spellCheck={false}
+            className="field mt-1.5 h-auto resize-y py-2 text-sm leading-relaxed"
+          />
+          <p className="fg-3 mt-1 text-xs">
+            {parsed.length > 0
+              ? `${parsed.length} address${parsed.length === 1 ? "" : "es"} — separated by commas, spaces or new lines.`
+              : "Paste from a spreadsheet — commas, spaces or new lines all work."}
+          </p>
+        </>
+      ) : (
+        <>
+          <label className="block text-xs font-semibold" htmlFor="new-mailbox">
+            Mailbox address
+          </label>
+          <input
+            id="new-mailbox"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="accounts@yourcompany.com"
+            autoComplete="off"
+            className="field mt-1.5 text-sm"
+          />
+        </>
+      )}
+
+      <div className="mt-3">
+        <ClassPicker klass={klass} onChange={setKlass} />
+      </div>
+
+      {result && (
+        <p className="accent mt-2 text-xs font-semibold">
+          Added {result.added}
+          {result.skipped > 0 && (
+            <span className="fg-3 font-normal">
+              {" "}
+              · skipped {result.skipped} (already added or invalid)
+            </span>
+          )}
+        </p>
+      )}
       {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
+
       <div className="mt-3 flex gap-2">
-        <Button size="sm" variant="accent" onClick={submit} disabled={busy}>
-          {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null} ADD
+        <Button
+          size="sm"
+          variant="accent"
+          onClick={mode === "many" ? submitMany : submitOne}
+          disabled={busy || (mode === "many" && parsed.length === 0)}
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null}
+          {mode === "many" ? `ADD ${parsed.length || ""}`.trim() : "ADD"}
         </Button>
         <Button size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
-          CANCEL
+          {result ? "DONE" : "CANCEL"}
         </Button>
       </div>
     </div>
@@ -653,6 +774,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Oversight | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [mfaOpen, setMfaOpen] = useState(false);
+  const [mailboxQuery, setMailboxQuery] = useState("");
   const [filter, setFilter] = useState<"open" | "all">("open");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -904,10 +1026,27 @@ export default function Dashboard() {
 
           <div className="panel">
             <div className="border-b px-5 py-3.5">
-              <h2 className="sect-label">Mailbox coverage</h2>
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="sect-label">Mailbox coverage</h2>
+                {mailboxes.length > 0 && (
+                  <span className="mono-xs fg-3 tnum">
+                    {mailboxes.filter((m) => m.sources.some((s) => MAIL_SOURCES.has(s))).length}
+                    /{mailboxes.length} connected
+                  </span>
+                )}
+              </div>
               <p className="fg-3 mt-1 text-xs">
                 Derived from what each connection can do
               </p>
+              {mailboxes.length > 6 && (
+                <input
+                  value={mailboxQuery}
+                  onChange={(e) => setMailboxQuery(e.target.value)}
+                  placeholder="Filter mailboxes…"
+                  aria-label="Filter mailboxes"
+                  className="field mt-3 h-9 text-sm"
+                />
+              )}
             </div>
             {mailboxes.length === 0 ? (
               <p className="fg-3 px-5 pt-5 text-xs leading-relaxed">
@@ -915,10 +1054,22 @@ export default function Dashboard() {
                 finance, executives, accounts payable — then connect them below.
               </p>
             ) : (
-              <ul className="divide-y" role="list">
-                {mailboxes.map((m) => {
-                  const connected = m.sources.some((s) => MAIL_SOURCES.has(s));
-                  return (
+              <ul
+                className={cn(
+                  "divide-y",
+                  mailboxes.length > 8 && "max-h-[32rem] overflow-y-auto",
+                )}
+                role="list"
+              >
+                {mailboxes
+                  .filter((m) =>
+                    mailboxQuery
+                      ? m.address.toLowerCase().includes(mailboxQuery.toLowerCase())
+                      : true,
+                  )
+                  .map((m) => {
+                    const connected = m.sources.some((s) => MAIL_SOURCES.has(s));
+                    return (
                     <li key={m.id} className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="min-w-0 flex-1">

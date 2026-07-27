@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  Activity,
   Banknote,
+  Check,
   CheckCircle2,
+  Copy,
   Fingerprint,
   Forward,
   Globe,
@@ -301,6 +304,7 @@ function MailboxConnect({
   const [port, setPort] = useState(993);
   const [password, setPassword] = useState("");
   const [ingest, setIngest] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
@@ -364,6 +368,29 @@ function MailboxConnect({
     }
   }
 
+  function copyIngest() {
+    if (!ingest) return;
+    void navigator.clipboard.writeText(ingest);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  // The user confirms they've set the forwarding rule — record it so the mailbox
+  // reads as covered (alert-only) instead of leaving the address sitting there.
+  async function markForwarding() {
+    setBusy("forward");
+    setNote(null);
+    try {
+      await api.connectForward(mailbox.id);
+      setMode(null);
+      await onConnected();
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not confirm forwarding.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const rec = plan?.recommended.id ?? "";
   const providerName = plan?.provider.name ?? null;
   const isMs = rec === "oauth_microsoft" && configured.includes("microsoft");
@@ -395,7 +422,13 @@ function MailboxConnect({
         >
           <KeyRound size={12} aria-hidden /> Connect via IMAP
         </Button>
-        <Button size="sm" variant="quiet" disabled={busy !== null} onClick={openForward}>
+        <Button
+          size="sm"
+          variant="line"
+          disabled={busy !== null}
+          aria-pressed={mode === "forward"}
+          onClick={() => (mode === "forward" ? setMode(null) : void openForward())}
+        >
           <Forward size={12} aria-hidden /> Forwarding
         </Button>
       </div>
@@ -438,14 +471,48 @@ function MailboxConnect({
       )}
 
       {mode === "forward" && (
-        <div className="mt-3 border-l-2 border-[var(--accent)] pl-3">
+        <div className="mt-3 space-y-2.5 border-l-2 border-[var(--accent)] pl-3">
           <p className="fg-3 text-xs leading-relaxed">
-            Forward a copy of inbound mail to this address (works on every provider,
-            alert-only — no quarantine):
+            In your mail provider, forward a copy of inbound mail to this address.
+            Works on every provider — alert-only, no quarantine.
           </p>
-          <code className="font-mono mt-1.5 block text-xs break-all">
-            {ingest || "…"}
-          </code>
+          <div className="flex items-center gap-2">
+            <code className="font-mono flex-1 text-xs break-all">{ingest || "…"}</code>
+            <Button size="sm" variant="line" onClick={copyIngest} disabled={!ingest}>
+              {copied ? (
+                <>
+                  <Check size={12} aria-hidden /> COPIED
+                </>
+              ) : (
+                <>
+                  <Copy size={12} aria-hidden /> COPY
+                </>
+              )}
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <Button
+              size="sm"
+              variant="accent"
+              disabled={busy !== null || !ingest}
+              onClick={markForwarding}
+            >
+              {busy === "forward" ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : (
+                <Check size={12} aria-hidden />
+              )}
+              I'VE SET UP FORWARDING
+            </Button>
+            <Button size="sm" variant="quiet" onClick={() => setMode(null)} disabled={busy !== null}>
+              CANCEL
+            </Button>
+          </div>
+          <p className="fg-3 text-[11px] leading-relaxed">
+            Marking this done sets the mailbox to <span className="font-semibold">Limited</span>{" "}
+            (alert-only) coverage — forwarding arrives after delivery, so it can warn
+            but not quarantine. Connect via IMAP or OAuth for full protection.
+          </p>
         </div>
       )}
 
@@ -763,6 +830,103 @@ function GoverningMetrics() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/* Friendly labels for the audit actions that show up on a mailbox. */
+const ACTION_LABEL: Record<string, string> = {
+  "mailbox.connected": "Connection updated",
+  "mailbox.removed": "Removed",
+  "message.quarantined": "Message quarantined",
+  "alert.raised": "Alert raised",
+  "alert.acknowledged": "Alert acknowledged",
+  "alert.resolved": "Alert resolved",
+};
+
+/* What has actually happened on this mailbox — so IT can see it is protected,
+   not only when an alert fires. Fetched lazily when expanded. */
+function MailboxActivity({ mailboxId }: { mailboxId: string }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Awaited<
+    ReturnType<typeof api.mailboxActivity>
+  > | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && !data) {
+      setLoading(true);
+      try {
+        setData(await api.mailboxActivity(mailboxId));
+      } catch {
+        /* surfaced by the queue banner on next load */
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  return (
+    <div className="mt-2.5">
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        className="fg-3 mono-xs flex cursor-pointer items-center gap-1.5 transition-colors hover:text-[var(--fg)]"
+      >
+        <Activity size={11} aria-hidden />
+        {open ? "HIDE ACTIVITY" : "ACTIVITY"}
+      </button>
+
+      {open && (
+        <div className="rise mt-2 border-l border-[var(--rule)] pl-3">
+          {loading || !data ? (
+            <p className="fg-3 text-xs">Loading…</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-x-5 gap-y-1">
+                <span className="mono-xs">
+                  <span className="fg-3">SCANNED </span>
+                  <span className="tnum">{data.messages_scanned}</span>
+                </span>
+                <span className="mono-xs">
+                  <span className="fg-3">ALERTS </span>
+                  <span className="tnum">{data.alerts_raised}</span>
+                </span>
+                {data.last_sync_at && (
+                  <span className="mono-xs">
+                    <span className="fg-3">LAST SYNC </span>
+                    {timeOf(data.last_sync_at)}
+                  </span>
+                )}
+              </div>
+              <ul className="mt-2 space-y-1.5" role="list">
+                {data.events.length === 0 ? (
+                  <li className="fg-3 text-xs">
+                    Connected and monitoring. Nothing to report — quiet is the
+                    correct state.
+                  </li>
+                ) : (
+                  data.events.map((e, i) => (
+                    <li
+                      key={`${e.at}-${i}`}
+                      className="flex items-baseline gap-2 text-xs"
+                    >
+                      <span className="fg-2">
+                        {ACTION_LABEL[e.action] ?? e.action}
+                      </span>
+                      <span className="fg-3 mono-xs ml-auto shrink-0">
+                        {timeOf(e.at)}
+                      </span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1098,6 +1262,7 @@ export default function Dashboard() {
                         </p>
                       )}
                       {!connected && <MailboxConnect mailbox={m} onConnected={load} />}
+                      {connected && <MailboxActivity mailboxId={m.id} />}
                     </li>
                   );
                 })}

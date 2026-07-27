@@ -392,6 +392,14 @@ export const api = {
 
   tenant: () => request<TenantInfo>("/api/v1/tenant"),
 
+  // Full account deletion. The domain trial ledger is retained (anti-abuse), so a
+  // returning owner gets no fresh trial. Requires the password (+ code if MFA on).
+  deleteTenant: (body: { password: string; mfa_code?: string }) =>
+    request<{ deleted: boolean; domain_ledger_retained: boolean }>("/api/v1/tenant", {
+      method: "DELETE",
+      body: JSON.stringify(body),
+    }),
+
   alerts: (state?: string) =>
     request<{ alerts: AlertRecord[]; count: number }>(
       `/api/v1/alerts${state ? `?state=${state}` : ""}`,
@@ -437,6 +445,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // Mark a mailbox as connected by forwarding (alert-only — Limited coverage).
+  connectForward: (mailboxId: string) =>
+    request<MailboxRecord>(`/api/v1/mailboxes/${mailboxId}/connect/forward`, {
+      method: "POST",
+    }),
+
+  mailboxActivity: (mailboxId: string) =>
+    request<{
+      address: string;
+      connected: boolean;
+      protection_level: "full" | "standard" | "limited";
+      sources: string[];
+      inactive_detections: string[];
+      last_sync_at: string | null;
+      messages_scanned: number;
+      alerts_raised: number;
+      events: { action: string; at: string; detail: unknown }[];
+    }>(`/api/v1/mailboxes/${mailboxId}/activity`),
 
   removeMailbox: (mailboxId: string) =>
     request<{ removed: boolean; address: string }>(

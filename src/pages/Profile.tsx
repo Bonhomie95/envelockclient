@@ -9,6 +9,7 @@ import {
   Phone,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { ApiError, api, auth, type TenantInfo } from "../lib/api";
 import { checkPassphrase } from "../lib/passphrase";
@@ -387,6 +388,107 @@ function ChangePassword({ me }: { me: Me }) {
   );
 }
 
+/* Full account deletion. Confirmed with the password (+ code when MFA is on) and
+   a typed confirmation. The domain is kept in the anti-abuse ledger, so returning
+   later means no fresh trial — surfaced honestly in the copy. */
+function DeleteAccount({ me }: { me: Me }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState("");
+  const [code, setCode] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setNote(null);
+    try {
+      await api.deleteTenant({
+        password: pw,
+        ...(me.mfa_enabled ? { mfa_code: code } : {}),
+      });
+      auth.clear();
+      navigate("/", {
+        state: { notice: "Your account and its data were deleted." },
+      });
+    } catch (err) {
+      setNote(err instanceof ApiError ? err.message : "Could not delete the account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-xs font-semibold text-[var(--danger)] underline underline-offset-4"
+      >
+        Delete account
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="w-full space-y-3">
+      <p className="fg-2 text-xs leading-relaxed">
+        This permanently deletes your workspace — mailboxes, alerts, and audit
+        trail. It cannot be undone. Your domain stays on our anti-abuse ledger, so
+        if you come back after using a trial you'll subscribe from the start (no
+        second free trial).
+      </p>
+      <input
+        type="password"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        placeholder="current password"
+        autoComplete="current-password"
+        className="field text-sm"
+      />
+      {me.mfa_enabled && (
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+          inputMode="numeric"
+          maxLength={6}
+          placeholder="authenticator code"
+          className="field font-mono w-44 text-sm tracking-[0.3em]"
+        />
+      )}
+      <div>
+        <label htmlFor="del-confirm" className="fg-3 block text-xs">
+          Type <span className="font-mono font-semibold">DELETE</span> to confirm
+        </label>
+        <input
+          id="del-confirm"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          className="field mt-1 w-44 text-sm"
+          autoComplete="off"
+        />
+      </div>
+      {note && <p className="text-xs text-red-600">{note}</p>}
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          size="sm"
+          variant="line"
+          className="border-[var(--danger)] text-[var(--danger)] hover:bg-[var(--danger)]/10"
+          disabled={busy || !pw || confirm !== "DELETE" || (me.mfa_enabled && code.length !== 6)}
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <Trash2 size={12} aria-hidden />}
+          DELETE FOREVER
+        </Button>
+        <Button type="button" size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
+          CANCEL
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export default function Profile() {
   const navigate = useNavigate();
   const [me, setMe] = useState<Me | null>(null);
@@ -554,6 +656,21 @@ export default function Profile() {
               <Button variant="quiet">BACK TO DASHBOARD</Button>
             </Link>
           </div>
+
+          {/* Danger zone — owner only, since deletion removes the whole tenant. */}
+          {me.role === "owner" && (
+            <>
+              <div className="mt-12 flex items-center gap-2">
+                <Trash2 size={16} className="text-[var(--danger)]" aria-hidden />
+                <h2 className="text-sm font-semibold text-[var(--danger)]">
+                  Danger zone
+                </h2>
+              </div>
+              <section className="panel mt-3 border-[var(--danger)]/40 p-6">
+                <DeleteAccount me={me} />
+              </section>
+            </>
+          )}
         </>
       )}
     </main>

@@ -14,7 +14,9 @@ import {
   Play,
   Plus,
   RefreshCw,
+  ShieldAlert,
   Trash2,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -44,6 +46,12 @@ const MAIL_SOURCES = new Set([
 ]);
 import { Button, LevelChip, TierChip, cn } from "../components/primitives";
 import ConnectionAdvisor from "../components/ConnectionAdvisor";
+import MfaEnroll from "../components/MfaEnroll";
+
+interface Me {
+  email: string;
+  mfa_enabled: boolean;
+}
 
 /* Icons are chosen from the detection id so the queue stays readable at a
    glance without the server having to send presentation details. */
@@ -643,6 +651,8 @@ export default function Dashboard() {
   const [mailboxes, setMailboxes] = useState<MailboxRecord[]>([]);
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
   const [stats, setStats] = useState<Oversight | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
+  const [mfaOpen, setMfaOpen] = useState(false);
   const [filter, setFilter] = useState<"open" | "all">("open");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -651,14 +661,16 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [a, m, t] = await Promise.all([
+      const [a, m, t, who] = await Promise.all([
         api.alerts(),
         api.mailboxes(),
         api.tenant(),
+        api.me(),
       ]);
       setAlerts(a.alerts);
       setMailboxes(m.mailboxes);
       setTenant(t);
+      setMe(who);
       try {
         setStats(await api.oversight());
       } catch {
@@ -780,6 +792,54 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {me && !me.mfa_enabled && (
+        <div className="border-b border-[var(--warn)]/30">
+          <div className="shell py-4">
+            <div className="callout flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+              <ShieldAlert size={18} className="shrink-0" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">
+                  Two-factor authentication is off
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed">
+                  A stolen password is enough to take this account. Turn on your
+                  authenticator app — it takes about a minute.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant={mfaOpen ? "quiet" : "accent"}
+                className="shrink-0"
+                onClick={() => setMfaOpen((o) => !o)}
+                aria-expanded={mfaOpen}
+              >
+                {mfaOpen ? (
+                  <>
+                    <X size={13} aria-hidden /> CLOSE
+                  </>
+                ) : (
+                  <>
+                    <ShieldAlert size={13} aria-hidden /> SET UP TWO-FACTOR
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {mfaOpen && (
+              <div className="panel rise mt-3 p-5">
+                <MfaEnroll
+                  onDone={async () => {
+                    setMfaOpen(false);
+                    await load();
+                  }}
+                  onCancel={() => setMfaOpen(false)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && error !== "signed-out" && (
         <div className="shell py-4">

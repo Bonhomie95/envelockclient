@@ -101,6 +101,28 @@ export default function SignIn() {
     }
   }
 
+  async function skipMfa() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.mfaSkip(mfaToken);
+      auth.set(result.access_token);
+
+      if (mode === "signup" && domain) {
+        try {
+          await api.bootstrap({ name: domain, domain });
+        } catch {
+          /* tenant may already exist */
+        }
+      }
+      navigate("/dashboard");
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function copySecret() {
     void navigator.clipboard.writeText(secret);
     setCopied(true);
@@ -201,7 +223,7 @@ export default function SignIn() {
                       return (
                         <p className="fg-3 mt-2 text-xs">
                           Use a passphrase — several unrelated words, 16+
-                          characters. MFA is mandatory on every account.
+                          characters. You can add two-factor now or later.
                         </p>
                       );
                     return (
@@ -279,7 +301,8 @@ export default function SignIn() {
             <h1 className="headline mt-5 text-balance">Set up two-factor.</h1>
             <p className="lede mt-4 text-base">
               Scan this with your authenticator app (Google Authenticator, Authy,
-              1Password, …). MFA is mandatory on every account.
+              1Password, …). Strongly recommended — but you can skip it now and
+              turn it on later from your dashboard.
             </p>
 
             <div className="panel mt-8 p-5">
@@ -355,6 +378,21 @@ export default function SignIn() {
                 ACTIVATE
               </Button>
             </form>
+
+            <div className="mt-6 border-t pt-6">
+              <button
+                type="button"
+                onClick={skipMfa}
+                disabled={busy}
+                className="fg-2 cursor-pointer text-sm font-semibold underline underline-offset-4 hover:text-[var(--fg)] disabled:opacity-45"
+              >
+                Skip for now — set up two-factor later
+              </button>
+              <p className="fg-3 mt-2 text-xs leading-relaxed">
+                Your dashboard will remind you until it's on. Two-factor is what
+                keeps a stolen password from becoming a stolen account.
+              </p>
+            </div>
           </>
         )}
 

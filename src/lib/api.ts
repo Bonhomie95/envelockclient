@@ -312,14 +312,35 @@ export const api = {
       { method: "POST", body: JSON.stringify(body) },
     ),
 
+  // Defer MFA and start a session now. The dashboard nags until it's enabled.
+  mfaSkip: (mfaToken: string) =>
+    request<{ access_token: string; role: string; mfa_deferred: boolean }>(
+      "/api/v1/auth/mfa/skip",
+      { method: "POST", body: JSON.stringify({ token: mfaToken }) },
+    ),
+
+  // Turn MFA on from inside an authenticated session (for users who skipped it).
+  mfaEnroll: () =>
+    request<{ secret: string; otpauth_uri: string }>("/api/v1/auth/mfa/enroll", {
+      method: "POST",
+    }),
+
+  mfaActivate: (code: string) =>
+    request<{ mfa_enabled: boolean; recovery_codes: string[] }>(
+      "/api/v1/auth/mfa/activate",
+      { method: "POST", body: JSON.stringify({ code }) },
+    ),
+
   me: () =>
     request<{
       email: string;
       role: string;
       tenant_id: string;
       is_admin: boolean;
+      mfa_enabled: boolean;
       phone: string | null;
       phone_verified: boolean;
+      recovery_codes_remaining: number;
     }>("/api/v1/auth/me"),
 
   logout: () =>

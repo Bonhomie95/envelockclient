@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { BadgeCheck, Loader2, LogOut, Phone, ShieldCheck } from "lucide-react";
+import {
+  BadgeCheck,
+  Loader2,
+  LogOut,
+  Phone,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
 import { ApiError, api, auth, type TenantInfo } from "../lib/api";
 import { Button } from "../components/primitives";
+import MfaEnroll from "../components/MfaEnroll";
 
 interface Me {
   email: string;
   role: string;
   tenant_id: string;
   is_admin: boolean;
+  mfa_enabled: boolean;
   phone: string | null;
   phone_verified: boolean;
+  recovery_codes_remaining: number;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -115,6 +125,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const [me, setMe] = useState<Me | null>(null);
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
+  const [mfaOpen, setMfaOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -191,14 +202,50 @@ export default function Profile() {
             <ShieldCheck size={16} className="accent" aria-hidden />
             <h2 className="text-sm font-semibold">Two-factor &amp; recovery</h2>
           </div>
+          {!me.mfa_enabled && (
+            <div className="callout mt-3 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+              <ShieldAlert size={18} className="shrink-0" aria-hidden />
+              <p className="min-w-0 flex-1 text-xs leading-relaxed">
+                <span className="font-semibold">Two-factor is off.</span> A stolen
+                password is enough to take this account. Turn it on below.
+              </p>
+            </div>
+          )}
           <section className="panel mt-3 px-6 py-2">
             <Row label="Authenticator app (TOTP)">
-              <span className="accent flex items-center gap-1.5 text-xs font-semibold">
-                <BadgeCheck size={14} aria-hidden /> ACTIVE
-              </span>
+              {me.mfa_enabled ? (
+                <span className="accent flex items-center gap-1.5 text-xs font-semibold">
+                  <BadgeCheck size={14} aria-hidden /> ACTIVE
+                </span>
+              ) : mfaOpen ? (
+                <Button size="sm" variant="quiet" onClick={() => setMfaOpen(false)}>
+                  CANCEL
+                </Button>
+              ) : (
+                <Button size="sm" variant="accent" onClick={() => setMfaOpen(true)}>
+                  <ShieldAlert size={12} aria-hidden /> SET UP NOW
+                </Button>
+              )}
             </Row>
+            {!me.mfa_enabled && mfaOpen && (
+              <div className="rise border-b py-4">
+                <MfaEnroll
+                  onDone={async () => {
+                    setMfaOpen(false);
+                    await load();
+                  }}
+                  onCancel={() => setMfaOpen(false)}
+                />
+              </div>
+            )}
             <Row label="Recovery codes">
-              <span className="fg-3 text-xs">Issued at sign-up · single-use</span>
+              {me.mfa_enabled ? (
+                <span className="fg-3 text-xs">
+                  {me.recovery_codes_remaining} remaining · single-use
+                </span>
+              ) : (
+                <span className="fg-3 text-xs">Issued when you turn on two-factor</span>
+              )}
             </Row>
             <Row label={me.phone_verified ? `Recovery phone (${me.phone})` : "Recovery phone"}>
               {me.phone_verified ? (

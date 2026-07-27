@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Link,
   NavLink,
+  Outlet,
   Route,
   Routes,
   useLocation,
@@ -350,6 +351,130 @@ function ScrollToTop() {
   return null;
 }
 
+/* The public marketing site: full nav, product/company footer. */
+function MarketingLayout() {
+  return (
+    <>
+      <Header />
+      <div id="main" className="flex-1">
+        <Outlet />
+      </div>
+      <Footer />
+    </>
+  );
+}
+
+/* The signed-in console. Deliberately NOT the landing chrome: no product /
+   documentation / sandbox links, no marketing footer — a self-contained
+   workspace so it never reads as "still on the landing page". */
+const APP_NAV = [
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/profile", label: "Profile", icon: UserRound },
+];
+
+function AppHeader() {
+  const navigate = useNavigate();
+  const signedIn = auth.signedIn;
+
+  async function signOut() {
+    try {
+      await api.logout();
+    } catch {
+      /* best-effort revoke; clearing the local token is what matters */
+    }
+    auth.clear();
+    navigate("/");
+  }
+
+  return (
+    <header className="sticky top-0 z-50 border-b bg-[var(--bg-raised)]">
+      <div className="shell flex h-14 items-center gap-3 sm:gap-5">
+        <Link
+          to={signedIn ? "/dashboard" : "/"}
+          className="flex items-center gap-2.5"
+          aria-label="Envelock console"
+        >
+          <Mark size={23} />
+          <span className="text-[15px] font-bold tracking-tight">ENVELOCK</span>
+          <span className="mono-xs fg-3 ml-0.5 hidden border-l pl-2.5 md:inline">
+            CONSOLE
+          </span>
+        </Link>
+
+        {signedIn && (
+          <nav
+            className="-mx-1 flex items-center gap-0.5 overflow-x-auto"
+            aria-label="Console"
+          >
+            {APP_NAV.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
+                    isActive ? "accent" : "fg-2 hover:text-[var(--fg)]",
+                  )
+                }
+              >
+                <Icon size={15} aria-hidden />
+                <span className="hidden sm:inline">{label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        )}
+
+        <div className="ml-auto flex items-center gap-1">
+          <ThemeToggle />
+          {signedIn ? (
+            <Button variant="line" size="sm" onClick={signOut}>
+              <LogOut size={13} aria-hidden />
+              <span className="hidden sm:inline">SIGN OUT</span>
+            </Button>
+          ) : (
+            <Link to="/signin">
+              <Button variant="line" size="sm">
+                SIGN IN
+              </Button>
+            </Link>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function AppFooter() {
+  return (
+    <footer className="border-t">
+      <div className="shell flex items-center gap-4 py-4">
+        <p className="fg-3 mono-xs">
+          © {new Date().getFullYear()} ENVELOCK
+        </p>
+        <span className="fg-3 mono-xs ml-auto flex items-center gap-1.5">
+          <span
+            className="size-1.5 rounded-full bg-[var(--ok)]"
+            aria-hidden
+          />
+          SECURE SESSION
+        </span>
+      </div>
+    </footer>
+  );
+}
+
+function AppLayout() {
+  return (
+    <>
+      <AppHeader />
+      <div id="main" className="flex-1">
+        <Outlet />
+      </div>
+      <AppFooter />
+    </>
+  );
+}
+
 export default function App() {
   return (
     <div id="top" className="flex min-h-dvh flex-col">
@@ -360,18 +485,18 @@ export default function App() {
         Skip to main content
       </a>
       <ScrollToTop />
-      <Header />
-      <div id="main" className="flex-1">
-        <Routes>
+      <Routes>
+        <Route element={<MarketingLayout />}>
           <Route path="/" element={<Landing />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/profile" element={<Profile />} />
           <Route path="/analyse" element={<Analyse />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/signin" element={<SignIn />} />
-        </Routes>
-      </div>
-      <Footer />
+        </Route>
+        <Route element={<AppLayout />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/profile" element={<Profile />} />
+        </Route>
+      </Routes>
     </div>
   );
 }

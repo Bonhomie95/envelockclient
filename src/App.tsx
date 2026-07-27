@@ -15,6 +15,7 @@ import {
   Moon,
   Sun,
   UserRound,
+  Users,
   X,
 } from "lucide-react";
 import { api, auth } from "./lib/api";
@@ -25,6 +26,7 @@ import Analyse from "./pages/Analyse";
 import Docs from "./pages/Docs";
 import SignIn from "./pages/SignIn";
 import Profile from "./pages/Profile";
+import Team from "./pages/Team";
 
 function Mark({ size = 26 }: { size?: number }) {
   return (
@@ -368,13 +370,16 @@ function MarketingLayout() {
    documentation / sandbox links, no marketing footer — a self-contained
    workspace so it never reads as "still on the landing page". */
 const APP_NAV = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/profile", label: "Profile", icon: UserRound },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
+  { to: "/team", label: "Team", icon: Users, adminOnly: true },
+  { to: "/profile", label: "Profile", icon: UserRound, adminOnly: false },
 ];
 
 function AppHeader() {
   const navigate = useNavigate();
   const signedIn = auth.signedIn;
+  const isAdmin = auth.role === "owner" || auth.role === "admin";
+  const nav = APP_NAV.filter((i) => !i.adminOnly || isAdmin);
 
   async function signOut() {
     try {
@@ -406,7 +411,7 @@ function AppHeader() {
             className="-mx-1 flex items-center gap-0.5 overflow-x-auto"
             aria-label="Console"
           >
-            {APP_NAV.map(({ to, label, icon: Icon }) => (
+            {nav.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -494,6 +499,7 @@ export default function App() {
         </Route>
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/team" element={<Team />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Routes>

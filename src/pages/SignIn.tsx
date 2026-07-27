@@ -16,7 +16,12 @@ import { Button, cn } from "../components/primitives";
 
 const STRENGTH_COLOR = ["#dc2626", "#dc2626", "#d97706", "#16a34a", "#16a34a"];
 
-type Step = "credentials" | "mfa-setup" | "mfa-verify" | "recovery";
+type Step =
+  | "credentials"
+  | "mfa-setup"
+  | "mfa-verify"
+  | "recovery"
+  | "set-password";
 
 export default function SignIn() {
   const navigate = useNavigate();
@@ -35,6 +40,7 @@ export default function SignIn() {
   const [otpauthUri, setOtpauthUri] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [recovery, setRecovery] = useState<string[]>([]);
+  const [newPass, setNewPass] = useState("");
   const [copied, setCopied] = useState(false);
 
   const [busy, setBusy] = useState(false);
@@ -74,6 +80,25 @@ export default function SignIn() {
     }
   }
 
+  // A user the owner provisioned must set their own password before anything else.
+  async function routeAfterAuth(recoveryCodes?: string[]) {
+    try {
+      const who = await api.me();
+      if (who.must_change_password) {
+        setStep("set-password");
+        return;
+      }
+    } catch {
+      /* fall through to the normal routes */
+    }
+    if (recoveryCodes?.length) {
+      setRecovery(recoveryCodes);
+      setStep("recovery");
+      return;
+    }
+    navigate("/dashboard");
+  }
+
   async function submitCode(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -89,13 +114,21 @@ export default function SignIn() {
           /* tenant may already exist */
         }
       }
+      await routeAfterAuth(result.recovery_codes);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      if (result.recovery_codes?.length) {
-        setRecovery(result.recovery_codes);
-        setStep("recovery");
-      } else {
-        navigate("/dashboard");
-      }
+  async function submitInitialPassword(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.setInitialPassword(newPass);
+      navigate("/dashboard");
     } catch (e) {
       fail(e);
     } finally {
@@ -117,7 +150,7 @@ export default function SignIn() {
           /* tenant may already exist */
         }
       }
-      navigate("/dashboard");
+      await routeAfterAuth();
     } catch (e) {
       fail(e);
     } finally {
@@ -143,7 +176,9 @@ export default function SignIn() {
                 : "Create account"
               : step === "recovery"
                 ? "Recovery codes"
-                : "Two-factor"}
+                : step === "set-password"
+                  ? "Set your password"
+                  : "Two-factor"}
           </span>
         </div>
 
@@ -468,6 +503,62 @@ export default function SignIn() {
               I HAVE SAVED THEM
               <ArrowRight size={14} aria-hidden />
             </Button>
+          </>
+        )}
+
+        {/* ── Set password (owner-provisioned first login) ────────────────── */}
+        {step === "set-password" && (
+          <>
+            <h1 className="headline mt-5 text-balance">Set your password.</h1>
+            <p className="lede mt-4 text-base">
+              Your account was created for you with a temporary password. Choose
+              your own to continue — no one else will know it.
+            </p>
+            <form onSubmit={submitInitialPassword} className="mt-8 space-y-4">
+              <div>
+                <label htmlFor="set-pw" className="block text-sm font-semibold">
+                  New password
+                </label>
+                <input
+                  id="set-pw"
+                  type="password"
+                  value={newPass}
+                  onChange={(e) => setNewPass(e.target.value)}
+                  autoComplete="new-password"
+                  minLength={12}
+                  required
+                  autoFocus
+                  className="field mt-2"
+                />
+                {newPass &&
+                  (() => {
+                    const s = checkPassphrase(newPass);
+                    return (
+                      <p
+                        className="mt-2 text-xs font-medium"
+                        style={{ color: s.ok ? "#16a34a" : STRENGTH_COLOR[s.score] }}
+                      >
+                        {s.label}
+                        {s.hint ? ` — ${s.hint}` : ""}
+                      </p>
+                    );
+                  })()}
+              </div>
+              <Button
+                type="submit"
+                variant="accent"
+                size="lg"
+                className="w-full"
+                disabled={busy || !checkPassphrase(newPass).ok}
+              >
+                {busy ? (
+                  <Loader2 size={14} className="animate-spin" aria-hidden />
+                ) : (
+                  <KeyRound size={14} aria-hidden />
+                )}
+                SET PASSWORD
+              </Button>
+            </form>
           </>
         )}
 

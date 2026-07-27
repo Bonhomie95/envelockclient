@@ -190,6 +190,19 @@ export const auth = {
   get signedIn(): boolean {
     return Boolean(localStorage.getItem(TOKEN_KEY));
   },
+  /** Role from the token payload ("owner" | "admin" | "member"), for showing
+   *  admin-only nav without a round-trip. The server still enforces every check. */
+  get role(): string | null {
+    const t = localStorage.getItem(TOKEN_KEY);
+    if (!t) return null;
+    try {
+      const raw = t.split(".")[0].replace(/-/g, "+").replace(/_/g, "/");
+      const json = atob(raw + "=".repeat((4 - (raw.length % 4)) % 4));
+      return (JSON.parse(json).role as string) ?? null;
+    } catch {
+      return null;
+    }
+  },
 };
 
 export class ApiError extends Error {
@@ -358,11 +371,19 @@ export const api = {
       role: string;
       tenant_id: string;
       is_admin: boolean;
+      must_change_password: boolean;
       mfa_enabled: boolean;
       phone: string | null;
       phone_verified: boolean;
       recovery_codes_remaining: number;
     }>("/api/v1/auth/me"),
+
+  // First-login password set for an owner-provisioned account (no MFA needed).
+  setInitialPassword: (new_password: string) =>
+    request<{ status: string }>("/api/v1/auth/password/initial", {
+      method: "POST",
+      body: JSON.stringify({ new_password }),
+    }),
 
   logout: () =>
     request<{ status: string }>("/api/v1/auth/logout", { method: "POST" }),
@@ -381,6 +402,35 @@ export const api = {
     request<{ phone_verified: boolean; phone: string }>(
       "/api/v1/auth/phone/verify",
       { method: "POST", body: JSON.stringify({ code }) },
+    ),
+
+  // ── Team management (owner-provisioned) ─────────────────────────────────────
+  members: () =>
+    request<{
+      members: {
+        id: string;
+        email: string;
+        role: string;
+        status: string;
+        pending_password: boolean;
+        is_self: boolean;
+      }[];
+      seats: { used: number; cap: number; entitled: boolean; protected_mailboxes: number };
+    }>("/api/v1/members"),
+
+  createMember: (body: { email: string; role: "member" | "admin" }) =>
+    request<{
+      id: string;
+      email: string;
+      role: string;
+      temporary_password: string;
+      note: string;
+    }>("/api/v1/members", { method: "POST", body: JSON.stringify(body) }),
+
+  removeMember: (userId: string) =>
+    request<{ removed: boolean; email: string }>(
+      `/api/v1/members/${userId}/reject`,
+      { method: "POST" },
     ),
 
   // ── Tenant data ───────────────────────────────────────────────────────────

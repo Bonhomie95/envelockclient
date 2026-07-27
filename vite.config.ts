@@ -10,8 +10,8 @@ export default defineConfig({
     // hit a stale server, and it looks like the CSS broke. Fail loudly.
     strictPort: true,
     proxy: {
-      "/api": "http://localhost:8010",
-      "/health": "http://localhost:8010",
+      "/api": "https://envelockserver.onrender.com",
+      "/health": "https://envelockserver.onrender.com",
     },
   },
 });

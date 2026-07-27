@@ -333,6 +333,25 @@ export const api = {
       { method: "POST", body: JSON.stringify({ code }) },
     ),
 
+  // Change the account password behind a step-up re-auth. All other sessions are
+  // revoked on success, so the caller should sign in again.
+  changePassword: (body: {
+    current_password: string;
+    new_password: string;
+    mfa_code?: string;
+  }) =>
+    request<{ status: string; sessions_revoked: boolean }>("/api/v1/auth/password", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // Turn MFA off — requires the current password AND a fresh code.
+  mfaDisable: (body: { password: string; mfa_code: string }) =>
+    request<{ mfa_enabled: boolean }>("/api/v1/auth/mfa/disable", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   me: () =>
     request<{
       email: string;
@@ -350,10 +369,12 @@ export const api = {
 
   // Verified phone — a second, out-of-band channel for Critical alerts and
   // recovery. The code is sent by SMS (surfaced in dev for local testing).
-  phoneStart: (phone: string) =>
+  // Changing an already-verified phone requires current_password (+ mfa_code when
+  // MFA is on); the first add needs neither.
+  phoneStart: (body: { phone: string; current_password?: string; mfa_code?: string }) =>
     request<{ status: string; delivered: boolean; dev_code?: string }>(
       "/api/v1/auth/phone/start",
-      { method: "POST", body: JSON.stringify({ phone }) },
+      { method: "POST", body: JSON.stringify(body) },
     ),
 
   phoneVerify: (code: string) =>

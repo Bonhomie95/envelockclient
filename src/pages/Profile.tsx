@@ -2,13 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BadgeCheck,
+  KeyRound,
   Loader2,
+  Lock,
   LogOut,
   Phone,
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
 import { ApiError, api, auth, type TenantInfo } from "../lib/api";
+import { checkPassphrase } from "../lib/passphrase";
 import { Button } from "../components/primitives";
 import MfaEnroll from "../components/MfaEnroll";
 
@@ -36,17 +39,32 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
   const [open, setOpen] = useState(false);
   const [phone, setPhone] = useState(me.phone ?? "");
   const [code, setCode] = useState("");
+  // Step-up (only when changing an already-verified number).
+  const [pw, setPw] = useState("");
+  const [stepCode, setStepCode] = useState("");
   const [sent, setSent] = useState<string | null>(null); // dev code, if returned
   const [stage, setStage] = useState<"enter" | "verify">("enter");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
+  const changing = me.phone_verified; // swapping a trusted number is sensitive
+
   async function start() {
+    if (changing && !pw) {
+      setNote("Enter your current password to change a verified phone.");
+      return;
+    }
     setBusy(true);
     setNote(null);
     try {
-      const r = await api.phoneStart(phone);
+      const r = await api.phoneStart({
+        phone,
+        ...(changing ? { current_password: pw } : {}),
+        ...(changing && me.mfa_enabled ? { mfa_code: stepCode } : {}),
+      });
       setSent(r.dev_code ?? null);
+      setPw("");
+      setStepCode("");
       setStage("verify");
     } catch (e) {
       setNote(e instanceof ApiError ? e.message : "Could not send the code.");
@@ -83,20 +101,44 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
   return (
     <div className="w-full">
       {stage === "enter" ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+1 415 555 0100"
-            className="field w-52 text-sm"
-            autoComplete="tel"
-          />
-          <Button size="sm" variant="accent" onClick={start} disabled={busy || phone.length < 8}>
-            {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null} SEND CODE
-          </Button>
-          <Button size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
-            CANCEL
-          </Button>
+        <div className="w-full">
+          {changing && (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <input
+                type="password"
+                value={pw}
+                onChange={(e) => setPw(e.target.value)}
+                placeholder="current password"
+                className="field w-52 text-sm"
+                autoComplete="current-password"
+              />
+              {me.mfa_enabled && (
+                <input
+                  value={stepCode}
+                  onChange={(e) => setStepCode(e.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="auth code"
+                  className="field font-mono w-28 text-sm tracking-[0.2em]"
+                />
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 415 555 0100"
+              className="field w-52 text-sm"
+              autoComplete="tel"
+            />
+            <Button size="sm" variant="accent" onClick={start} disabled={busy || phone.length < 8}>
+              {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null} SEND CODE
+            </Button>
+            <Button size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
+              CANCEL
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -118,6 +160,195 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
       )}
       {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
     </div>
+  );
+}
+
+/* Turn MFA off — gated behind the current password AND a fresh authenticator
+   code, so a session alone can't strip the second factor. */
+function MfaDisable({ onDone }: { onDone: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function submit() {
+    setBusy(true);
+    setNote(null);
+    try {
+      await api.mfaDisable({ password: pw, mfa_code: code });
+      setOpen(false);
+      setPw("");
+      setCode("");
+      await onDone();
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not disable two-factor.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="fg-3 text-xs underline underline-offset-4 hover:text-[var(--danger)]"
+      >
+        Disable
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full">
+      <p className="fg-3 mb-2 text-xs">Confirm with your password and a current code.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="password"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          placeholder="current password"
+          className="field w-52 text-sm"
+          autoComplete="current-password"
+        />
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+          inputMode="numeric"
+          maxLength={6}
+          placeholder="auth code"
+          className="field font-mono w-28 text-sm tracking-[0.2em]"
+        />
+        <Button size="sm" variant="line" onClick={submit} disabled={busy || !pw || code.length !== 6}>
+          {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null} TURN OFF
+        </Button>
+        <Button size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
+          CANCEL
+        </Button>
+      </div>
+      {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
+    </div>
+  );
+}
+
+/* Change the account password. Requires the current password (+ a code when MFA
+   is on); on success every session is revoked, so we send the user back to
+   sign-in. */
+function ChangePassword({ me }: { me: Me }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const strength = checkPassphrase(next);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setNote(null);
+    try {
+      await api.changePassword({
+        current_password: cur,
+        new_password: next,
+        ...(me.mfa_enabled ? { mfa_code: code } : {}),
+      });
+      // Sessions were revoked server-side — re-authenticate.
+      auth.clear();
+      navigate("/signin");
+    } catch (err) {
+      setNote(err instanceof ApiError ? err.message : "Could not change the password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="line" onClick={() => setOpen(true)}>
+        <Lock size={12} aria-hidden /> Change password
+      </Button>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="w-full space-y-3">
+      <div>
+        <label htmlFor="cur-pw" className="block text-xs font-semibold">
+          Current password
+        </label>
+        <input
+          id="cur-pw"
+          type="password"
+          value={cur}
+          onChange={(e) => setCur(e.target.value)}
+          autoComplete="current-password"
+          className="field mt-1 text-sm"
+        />
+      </div>
+      <div>
+        <label htmlFor="new-pw" className="block text-xs font-semibold">
+          New password
+        </label>
+        <input
+          id="new-pw"
+          type="password"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          autoComplete="new-password"
+          minLength={12}
+          className="field mt-1 text-sm"
+        />
+        {next && (
+          <p
+            className="mt-1 text-xs font-medium"
+            style={{ color: strength.ok ? "#16a34a" : "#d97706" }}
+          >
+            {strength.label}
+            {strength.hint ? ` — ${strength.hint}` : ""}
+          </p>
+        )}
+      </div>
+      {me.mfa_enabled && (
+        <div>
+          <label htmlFor="pw-code" className="block text-xs font-semibold">
+            Authenticator code
+          </label>
+          <input
+            id="pw-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="000000"
+            className="field font-mono mt-1 w-40 text-sm tracking-[0.3em]"
+          />
+        </div>
+      )}
+      {note && <p className="text-xs text-red-600">{note}</p>}
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          size="sm"
+          variant="accent"
+          disabled={busy || !cur || !strength.ok || (me.mfa_enabled && code.length !== 6)}
+        >
+          {busy ? (
+            <Loader2 size={12} className="animate-spin" aria-hidden />
+          ) : (
+            <KeyRound size={12} aria-hidden />
+          )}
+          UPDATE PASSWORD
+        </Button>
+        <Button type="button" size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
+          CANCEL
+        </Button>
+      </div>
+      <p className="fg-3 text-xs leading-relaxed">
+        Changing your password signs out every other device.
+      </p>
+    </form>
   );
 }
 
@@ -214,9 +445,12 @@ export default function Profile() {
           <section className="panel mt-3 px-6 py-2">
             <Row label="Authenticator app (TOTP)">
               {me.mfa_enabled ? (
-                <span className="accent flex items-center gap-1.5 text-xs font-semibold">
-                  <BadgeCheck size={14} aria-hidden /> ACTIVE
-                </span>
+                <>
+                  <span className="accent flex items-center gap-1.5 text-xs font-semibold">
+                    <BadgeCheck size={14} aria-hidden /> ACTIVE
+                  </span>
+                  <MfaDisable onDone={load} />
+                </>
               ) : mfaOpen ? (
                 <Button size="sm" variant="quiet" onClick={() => setMfaOpen(false)}>
                   CANCEL
@@ -267,6 +501,15 @@ export default function Profile() {
             authenticator app is the primary factor, with recovery codes and a
             verified phone as backups.
           </p>
+
+          {/* Password */}
+          <div className="mt-8 flex items-center gap-2">
+            <Lock size={16} className="accent" aria-hidden />
+            <h2 className="text-sm font-semibold">Password</h2>
+          </div>
+          <section className="panel mt-3 p-6">
+            <ChangePassword me={me} />
+          </section>
 
           <div className="mt-10 flex items-center gap-3">
             <Button variant="line" onClick={signOut}>

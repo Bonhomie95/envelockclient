@@ -43,6 +43,7 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
   const [pw, setPw] = useState("");
   const [stepCode, setStepCode] = useState("");
   const [sent, setSent] = useState<string | null>(null); // dev code, if returned
+  const [delivered, setDelivered] = useState(true);
   const [stage, setStage] = useState<"enter" | "verify">("enter");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -60,9 +61,10 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
       const r = await api.phoneStart({
         phone,
         ...(changing ? { current_password: pw } : {}),
-        ...(changing && me.mfa_enabled ? { mfa_code: stepCode } : {}),
+        ...(changing ? { mfa_code: stepCode } : {}),
       });
       setSent(r.dev_code ?? null);
+      setDelivered(r.delivered);
       setPw("");
       setStepCode("");
       setStage("verify");
@@ -98,6 +100,21 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
     );
   }
 
+  // Changing a trusted number is a sensitive action → MFA required.
+  if (changing && !me.mfa_enabled) {
+    return (
+      <div className="w-full">
+        <p className="fg-3 flex items-start gap-2 text-xs leading-relaxed">
+          <ShieldAlert size={13} className="mt-0.5 shrink-0" aria-hidden />
+          Turn on two-factor authentication above to change your recovery phone.
+        </p>
+        <Button size="sm" variant="quiet" className="mt-2" onClick={() => setOpen(false)}>
+          CLOSE
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
       {stage === "enter" ? (
@@ -112,16 +129,14 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
                 className="field w-52 text-sm"
                 autoComplete="current-password"
               />
-              {me.mfa_enabled && (
-                <input
-                  value={stepCode}
-                  onChange={(e) => setStepCode(e.target.value.replace(/\D/g, ""))}
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="auth code"
-                  className="field font-mono w-28 text-sm tracking-[0.2em]"
-                />
-              )}
+              <input
+                value={stepCode}
+                onChange={(e) => setStepCode(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="auth code"
+                className="field font-mono w-28 text-sm tracking-[0.2em]"
+              />
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
@@ -157,6 +172,12 @@ function PhoneSetup({ me, onChanged }: { me: Me; onChanged: () => Promise<void> 
             <span className="fg-3 mono-xs">dev code: {sent}</span>
           )}
         </div>
+      )}
+      {stage === "verify" && !delivered && !sent && (
+        <p className="callout mt-2 px-3 py-2 text-xs leading-relaxed">
+          We couldn't send the SMS — this server has no SMS provider configured
+          yet, so phone verification can't complete. Ask your admin to add one.
+        </p>
       )}
       {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
     </div>
@@ -256,12 +277,26 @@ function ChangePassword({ me }: { me: Me }) {
       });
       // Sessions were revoked server-side — re-authenticate.
       auth.clear();
-      navigate("/signin");
+      navigate("/signin", {
+        state: { notice: "Password changed. Sign in with your new password." },
+      });
     } catch (err) {
       setNote(err instanceof ApiError ? err.message : "Could not change the password.");
     } finally {
       setBusy(false);
     }
+  }
+
+  // Sensitive changes are gated behind MFA (mirrors the server). Guide the user
+  // to enrol rather than showing a form the API would reject.
+  if (!me.mfa_enabled) {
+    return (
+      <p className="fg-3 flex items-start gap-2 text-xs leading-relaxed">
+        <ShieldAlert size={13} className="mt-0.5 shrink-0" aria-hidden />
+        Turn on two-factor authentication above to change your password — account
+        keys are protected by a second factor.
+      </p>
+    );
   }
 
   if (!open) {

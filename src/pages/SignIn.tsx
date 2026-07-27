@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Check,
@@ -20,6 +20,8 @@ type Step = "credentials" | "mfa-setup" | "mfa-verify" | "recovery";
 
 export default function SignIn() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const notice = (location.state as { notice?: string } | null)?.notice ?? null;
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [step, setStep] = useState<Step>("credentials");
 
@@ -148,6 +150,15 @@ export default function SignIn() {
         {/* ── Credentials ────────────────────────────────────────────────── */}
         {step === "credentials" && (
           <>
+            {notice && step === "credentials" && (
+              <p
+                role="status"
+                className="callout mt-5 flex items-center gap-2 px-4 py-3 text-xs font-medium"
+              >
+                <Check size={14} aria-hidden />
+                {notice}
+              </p>
+            )}
             <h1 className="headline mt-5 text-balance">
               {mode === "signin" ? "Welcome back." : "Start with the free scan."}
             </h1>

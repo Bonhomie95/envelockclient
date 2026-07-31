@@ -92,3 +92,36 @@ export function isLikelyDisposableEmail(email: string): boolean {
   const domain = email.slice(at + 1).trim().toLowerCase();
   return DISPOSABLE.has(domain);
 }
+
+/* Structural domain check that mirrors the server's `valid_domain`
+   (security/limits.py). Catches the common signup mistake of typing a company
+   name ("Acme Corp") into the domain field — which reduces to a truthy-but-bogus
+   value that would silently break every domain-based lookup for the tenant. */
+function labelChars(label: string): boolean {
+  // Each character must be a-z, 0-9, a hyphen, or a non-ASCII (IDN) codepoint —
+  // the same rule the server applies per label.
+  for (const ch of label) {
+    const code = ch.codePointAt(0)!;
+    const isAlnum =
+      (code >= 48 && code <= 57) || (code >= 97 && code <= 122); // 0-9, a-z
+    if (!(isAlnum || ch === "-" || code > 127)) return false;
+  }
+  return true;
+}
+
+export function looksLikeDomain(value: string): boolean {
+  const candidate = value.trim().replace(/\.$/, "").toLowerCase();
+  if (!candidate || candidate.length > 253) return false;
+  if (candidate.includes("..") || /[\s/@:]/.test(candidate)) return false;
+  const labels = candidate.split(".");
+  if (labels.length < 2) return false;
+  if (labels.every((l) => /^\d+$/.test(l))) return false; // bare IPv4
+  return labels.every(
+    (l) =>
+      l.length > 0 &&
+      l.length <= 63 &&
+      !l.startsWith("-") &&
+      !l.endsWith("-") &&
+      labelChars(l),
+  );
+}

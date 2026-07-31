@@ -11,7 +11,11 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { ApiError, api, auth } from "../lib/api";
-import { checkPassphrase, isLikelyDisposableEmail } from "../lib/passphrase";
+import {
+  checkPassphrase,
+  isLikelyDisposableEmail,
+  looksLikeDomain,
+} from "../lib/passphrase";
 import { Button, cn } from "../components/primitives";
 
 const STRENGTH_COLOR = ["#dc2626", "#dc2626", "#d97706", "#16a34a", "#16a34a"];
@@ -56,6 +60,13 @@ export default function SignIn() {
 
   async function submitCredentials(e: FormEvent) {
     e.preventDefault();
+    // The domain drives every downstream lookup (MX, DMARC, CT, lookalikes) and
+    // the forwarding ingest address, so reject a company name typed here before
+    // we create the account — not with a silent failure after registration.
+    if (mode === "signup" && domain && !looksLikeDomain(domain)) {
+      setError("Enter your company's domain, like yourcompany.com — not its name.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {

@@ -256,7 +256,9 @@ function Simulation({ domain }: { domain: string }) {
       {result && (
         <div className="rise mt-4 border-t pt-4">
           <p className="mono-xs">
-            <span className={result.passed === result.total ? "accent" : "fg-2"}>
+            <span
+              className={result.passed === result.total ? "accent" : "fg-2"}
+            >
               {result.passed}/{result.total} DETECTED
             </span>
           </p>
@@ -268,7 +270,8 @@ function Simulation({ domain }: { domain: string }) {
                 </span>
                 <code className="font-mono">{r.expected}</code>
                 <span className="fg-3 ml-auto">
-                  {r.detected.length} finding{r.detected.length === 1 ? "" : "s"}
+                  {r.detected.length} finding
+                  {r.detected.length === 1 ? "" : "s"}
                 </span>
               </li>
             ))}
@@ -334,7 +337,9 @@ function MailboxConnect({
       window.location.assign(authorize_url);
     } catch (e) {
       setBusy(null);
-      setNote(e instanceof ApiError ? e.message : "Could not start connection.");
+      setNote(
+        e instanceof ApiError ? e.message : "Could not start connection.",
+      );
     }
   }
 
@@ -346,7 +351,11 @@ function MailboxConnect({
     setBusy("imap");
     setNote(null);
     try {
-      await api.connectImap(mailbox.id, { imap_host: host, imap_port: port, password });
+      await api.connectImap(mailbox.id, {
+        imap_host: host,
+        imap_port: port,
+        password,
+      });
       setPassword("");
       setMode(null);
       await onConnected();
@@ -385,7 +394,9 @@ function MailboxConnect({
       setMode(null);
       await onConnected();
     } catch (e) {
-      setNote(e instanceof ApiError ? e.message : "Could not confirm forwarding.");
+      setNote(
+        e instanceof ApiError ? e.message : "Could not confirm forwarding.",
+      );
     } finally {
       setBusy(null);
     }
@@ -404,12 +415,22 @@ function MailboxConnect({
       <div className="flex flex-wrap gap-2">
         {/* One-click OAuth only when the domain really is on that provider. */}
         {isMs && (
-          <Button size="sm" variant="line" disabled={busy !== null} onClick={() => oauth("microsoft")}>
+          <Button
+            size="sm"
+            variant="line"
+            disabled={busy !== null}
+            onClick={() => oauth("microsoft")}
+          >
             <Link2 size={12} aria-hidden /> Connect Microsoft&nbsp;365
           </Button>
         )}
         {isGoogle && (
-          <Button size="sm" variant="line" disabled={busy !== null} onClick={() => oauth("google")}>
+          <Button
+            size="sm"
+            variant="line"
+            disabled={busy !== null}
+            onClick={() => oauth("google")}
+          >
             <Link2 size={12} aria-hidden /> Connect Google
           </Button>
         )}
@@ -427,7 +448,9 @@ function MailboxConnect({
           variant="line"
           disabled={busy !== null}
           aria-pressed={mode === "forward"}
-          onClick={() => (mode === "forward" ? setMode(null) : void openForward())}
+          onClick={() =>
+            mode === "forward" ? setMode(null) : void openForward()
+          }
         >
           <Forward size={12} aria-hidden /> Forwarding
         </Button>
@@ -436,8 +459,9 @@ function MailboxConnect({
       {mode === "imap" && (
         <div className="mt-3 space-y-2 border-l-2 border-[var(--accent)] pl-3">
           <p className="fg-3 text-xs leading-relaxed">
-            Use an <span className="font-semibold">app-specific password</span> where
-            your provider offers one. Stored encrypted; we never show it again.
+            Use an <span className="font-semibold">app-specific password</span>{" "}
+            where your provider offers one. Stored encrypted; we never show it
+            again.
           </p>
           <input
             value={host}
@@ -463,8 +487,15 @@ function MailboxConnect({
               autoComplete="off"
             />
           </div>
-          <Button size="sm" variant="accent" disabled={busy !== null} onClick={submitImap}>
-            {busy === "imap" ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null}{" "}
+          <Button
+            size="sm"
+            variant="accent"
+            disabled={busy !== null}
+            onClick={submitImap}
+          >
+            {busy === "imap" ? (
+              <Loader2 size={12} className="animate-spin" aria-hidden />
+            ) : null}{" "}
             CONNECT
           </Button>
         </div>
@@ -473,12 +504,19 @@ function MailboxConnect({
       {mode === "forward" && (
         <div className="mt-3 space-y-2.5 border-l-2 border-[var(--accent)] pl-3">
           <p className="fg-3 text-xs leading-relaxed">
-            In your mail provider, forward a copy of inbound mail to this address.
-            Works on every provider — alert-only, no quarantine.
+            In your mail provider, forward a copy of inbound mail to this
+            address. Works on every provider — alert-only, no quarantine.
           </p>
           <div className="flex items-center gap-2">
-            <code className="font-mono flex-1 text-xs break-all">{ingest || "…"}</code>
-            <Button size="sm" variant="line" onClick={copyIngest} disabled={!ingest}>
+            <code className="font-mono flex-1 text-xs break-all">
+              {ingest || "…"}
+            </code>
+            <Button
+              size="sm"
+              variant="line"
+              onClick={copyIngest}
+              disabled={!ingest}
+            >
               {copied ? (
                 <>
                   <Check size={12} aria-hidden /> COPIED
@@ -504,14 +542,20 @@ function MailboxConnect({
               )}
               I'VE SET UP FORWARDING
             </Button>
-            <Button size="sm" variant="quiet" onClick={() => setMode(null)} disabled={busy !== null}>
+            <Button
+              size="sm"
+              variant="quiet"
+              onClick={() => setMode(null)}
+              disabled={busy !== null}
+            >
               CANCEL
             </Button>
           </div>
           <p className="fg-3 text-[11px] leading-relaxed">
-            Marking this done sets the mailbox to <span className="font-semibold">Limited</span>{" "}
-            (alert-only) coverage — forwarding arrives after delivery, so it can warn
-            but not quarantine. Connect via IMAP or OAuth for full protection.
+            Marking this done sets the mailbox to{" "}
+            <span className="font-semibold">Limited</span> (alert-only) coverage
+            — forwarding arrives after delivery, so it can warn but not
+            quarantine. Connect via IMAP or OAuth for full protection.
           </p>
         </div>
       )}
@@ -541,7 +585,8 @@ function PlanBadge({ tenant }: { tenant: TenantInfo }) {
   } else if (tenant.trial_ended) {
     text = "TRIAL ENDED · ON GUARD";
     tone = "border-[var(--warn,#d97706)] text-[var(--warn,#d97706)]";
-    title = "Your trial ended — now on Guard (free). Add billing to restore full protection.";
+    title =
+      "Your trial ended — now on Guard (free). Add billing to restore full protection.";
   } else if (plan === "guard") {
     text = "GUARD · FREE";
     tone = "border-[var(--accent)] accent";
@@ -623,7 +668,10 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
   const [klass, setKlass] = useState<"protected" | "monitored">("protected");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [result, setResult] = useState<{ added: number; skipped: number } | null>(null);
+  const [result, setResult] = useState<{
+    added: number;
+    skipped: number;
+  } | null>(null);
 
   const parsed = mode === "many" ? parseAddresses(blob) : [];
 
@@ -635,7 +683,11 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
     setBusy(true);
     setNote(null);
     try {
-      await api.addMailbox({ address: address.trim(), mailbox_class: klass, sources: [] });
+      await api.addMailbox({
+        address: address.trim(),
+        mailbox_class: klass,
+        sources: [],
+      });
       setAddress("");
       setOpen(false);
       await onAdded();
@@ -655,7 +707,10 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
     setNote(null);
     setResult(null);
     try {
-      const r = await api.addMailboxesBulk({ addresses: parsed, mailbox_class: klass });
+      const r = await api.addMailboxesBulk({
+        addresses: parsed,
+        mailbox_class: klass,
+      });
       setResult({ added: r.created_count, skipped: r.skipped_count });
       setBlob("");
       await onAdded();
@@ -669,13 +724,18 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
   if (!open) {
     return (
       <div className="border-t p-4">
-        <Button size="sm" variant="line" className="w-full" onClick={() => setOpen(true)}>
+        <Button
+          size="sm"
+          variant="line"
+          className="w-full"
+          onClick={() => setOpen(true)}
+        >
           <Plus size={13} aria-hidden /> ADD MAILBOXES
         </Button>
         <p className="fg-3 mt-2 text-xs leading-relaxed">
           Paste your whole finance team or the full domain at once.
-          Microsoft&nbsp;365 and Google can import the entire organisation with one
-          admin consent; other providers connect per mailbox after adding.
+          Microsoft&nbsp;365 and Google can import the entire organisation with
+          one admin consent; other providers connect per mailbox after adding.
         </p>
       </div>
     );
@@ -708,7 +768,10 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
 
       {mode === "many" ? (
         <>
-          <label className="block text-xs font-semibold" htmlFor="bulk-mailboxes">
+          <label
+            className="block text-xs font-semibold"
+            htmlFor="bulk-mailboxes"
+          >
             Email addresses
           </label>
           <textarea
@@ -716,7 +779,9 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
             value={blob}
             onChange={(e) => setBlob(e.target.value)}
             rows={5}
-            placeholder={"finance@yourcompany.com\nexecs@yourcompany.com\naccounts@yourcompany.com"}
+            placeholder={
+              "finance@yourcompany.com\nexecs@yourcompany.com\naccounts@yourcompany.com"
+            }
             spellCheck={false}
             className="field mt-1.5 h-auto resize-y py-2 text-sm leading-relaxed"
           />
@@ -766,10 +831,17 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
           onClick={mode === "many" ? submitMany : submitOne}
           disabled={busy || (mode === "many" && parsed.length === 0)}
         >
-          {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null}
+          {busy ? (
+            <Loader2 size={12} className="animate-spin" aria-hidden />
+          ) : null}
           {mode === "many" ? `ADD ${parsed.length || ""}`.trim() : "ADD"}
         </Button>
-        <Button size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
+        <Button
+          size="sm"
+          variant="quiet"
+          onClick={() => setOpen(false)}
+          disabled={busy}
+        >
           {result ? "DONE" : "CANCEL"}
         </Button>
       </div>
@@ -824,7 +896,14 @@ function GoverningMetrics() {
                 {fmt(m)}
               </span>
               <span className="fg-3 text-xs">
-                {m.observed === null ? "no data" : m.meets ? "on target" : "off target"}
+                {/* `meets` is null when there's no sample to judge against yet —
+                    that's "no data", not a failure. Keying the label off
+                    `observed` alone printed "off target" for a healthy 0. */}
+                {m.meets === null
+                  ? "no data"
+                  : m.meets
+                    ? "on target"
+                    : "off target"}
               </span>
             </span>
           </li>
@@ -963,11 +1042,14 @@ export default function Dashboard() {
         setStats(null); // member role: no admin oversight
       }
     } catch (e) {
-      setError(
-        e instanceof ApiError && e.unauthorized
-          ? "signed-out"
-          : "Could not reach the API. Is the server running?",
-      );
+      // 401 = no/invalid session → sign in. 403 = a valid session that isn't
+      // allowed to see tenant data yet — a colleague still awaiting admin
+      // approval. These are different screens: telling an approved-pending user
+      // to "sign in" is a dead end, because they already are.
+      if (e instanceof ApiError && e.status === 403)
+        setError("pending-approval");
+      else if (e instanceof ApiError && e.unauthorized) setError("signed-out");
+      else setError("Could not reach the API. Is the server running?");
     } finally {
       setLoading(false);
     }
@@ -978,7 +1060,8 @@ export default function Dashboard() {
   }, [load]);
 
   const shown = useMemo(
-    () => (filter === "open" ? alerts.filter((a) => a.state === "open") : alerts),
+    () =>
+      filter === "open" ? alerts.filter((a) => a.state === "open") : alerts,
     [alerts, filter],
   );
   const open = alerts.filter((a) => a.state === "open");
@@ -1001,7 +1084,8 @@ export default function Dashboard() {
   }
 
   async function removeMailbox(id: string) {
-    if (!window.confirm("Remove this mailbox and its stored credential?")) return;
+    if (!window.confirm("Remove this mailbox and its stored credential?"))
+      return;
     try {
       await api.removeMailbox(id);
       await load();
@@ -1016,13 +1100,45 @@ export default function Dashboard() {
         <div className="panel mx-auto max-w-lg p-8 text-center">
           <h1 className="headline">Sign in to see your alerts</h1>
           <p className="lede mx-auto mt-4 text-base">
-            The dashboard reads live data from your tenant, so it needs a session.
+            The dashboard reads live data from your tenant, so it needs a
+            session.
           </p>
           <Link to="/signin" className="mt-8 inline-block">
             <Button variant="accent" size="lg">
               SIGN IN
             </Button>
           </Link>
+        </div>
+      </main>
+    );
+  }
+
+  // Signed in, but this account is a colleague who joined an existing tenant and
+  // is still waiting for an admin to approve them (server returns 403 until then).
+  // Show that plainly — not the "sign in" screen, which they'd read as a bug.
+  if (error === "pending-approval") {
+    return (
+      <main className="shell py-24">
+        <div className="panel mx-auto max-w-lg p-8 text-center">
+          <ShieldAlert size={28} className="fg-3 mx-auto" aria-hidden />
+          <h1 className="headline mt-5">Waiting for approval</h1>
+          <p className="lede mx-auto mt-4 text-base">
+            You're signed in, but a workspace admin at your company still needs
+            to approve your access. You'll see the alert queue and mailbox
+            coverage as soon as they do — no need to sign up again.
+          </p>
+          <p className="fg-3 mt-6 text-sm">
+            Already expecting access? Ask your Envelock admin to approve you
+            from their Team page.
+          </p>
+          <Button
+            variant="line"
+            size="sm"
+            className="mt-8"
+            onClick={() => void load()}
+          >
+            <RefreshCw size={13} aria-hidden /> CHECK AGAIN
+          </Button>
         </div>
       </main>
     );
@@ -1073,7 +1189,11 @@ export default function Dashboard() {
               aria-label="Refresh"
               className="fg-3 cursor-pointer p-2 transition-colors hover:text-[var(--fg)]"
             >
-              <RefreshCw size={15} className={cn(loading && "animate-spin")} aria-hidden />
+              <RefreshCw
+                size={15}
+                className={cn(loading && "animate-spin")}
+                aria-hidden
+              />
             </button>
           </div>
         </div>
@@ -1140,7 +1260,11 @@ export default function Dashboard() {
           <div className="panel">
             <div className="flex items-center justify-between border-b px-6 py-3.5">
               <h2 className="sect-label">Alert queue</h2>
-              <div className="flex gap-px" role="group" aria-label="Filter alerts">
+              <div
+                className="flex gap-px"
+                role="group"
+                aria-label="Filter alerts"
+              >
                 {(["open", "all"] as const).map((f) => (
                   <button
                     key={f}
@@ -1164,10 +1288,16 @@ export default function Dashboard() {
                 <p className="fg-3 p-12 text-center text-sm">Loading…</p>
               ) : shown.length === 0 ? (
                 <div className="p-12 text-center">
-                  <p className="text-sm font-semibold">Nothing open.</p>
-                  <p className="fg-3 mt-2 text-sm">
-                    Quiet is the correct state. Run a simulation to prove detection
-                    is working.
+                  <p className="text-sm font-semibold">
+                    {filter === "all" ? "No alerts yet." : "Nothing open."}
+                  </p>
+                  <p className="fg-3 mx-auto mt-2 max-w-md text-sm leading-relaxed">
+                    This is your alert queue. When Envelock spots invoice fraud,
+                    a lookalike domain, or an account takeover in a connected
+                    mailbox, it appears here with the action to take — verify,
+                    quarantine or dismiss. An empty queue means nothing needs
+                    you right now; quiet is the correct state. Run a simulation
+                    below to see detection working end to end.
                   </p>
                 </div>
               ) : (
@@ -1194,7 +1324,11 @@ export default function Dashboard() {
                 <h2 className="sect-label">Mailbox coverage</h2>
                 {mailboxes.length > 0 && (
                   <span className="mono-xs fg-3 tnum">
-                    {mailboxes.filter((m) => m.sources.some((s) => MAIL_SOURCES.has(s))).length}
+                    {
+                      mailboxes.filter((m) =>
+                        m.sources.some((s) => MAIL_SOURCES.has(s)),
+                      ).length
+                    }
                     /{mailboxes.length} connected
                   </span>
                 )}
@@ -1214,8 +1348,9 @@ export default function Dashboard() {
             </div>
             {mailboxes.length === 0 ? (
               <p className="fg-3 px-5 pt-5 text-xs leading-relaxed">
-                No mailboxes connected yet. Add the ones that touch money first —
-                finance, executives, accounts payable — then connect them below.
+                No mailboxes connected yet. Add the ones that touch money first
+                — finance, executives, accounts payable — then connect them
+                below.
               </p>
             ) : (
               <ul
@@ -1228,44 +1363,55 @@ export default function Dashboard() {
                 {mailboxes
                   .filter((m) =>
                     mailboxQuery
-                      ? m.address.toLowerCase().includes(mailboxQuery.toLowerCase())
+                      ? m.address
+                          .toLowerCase()
+                          .includes(mailboxQuery.toLowerCase())
                       : true,
                   )
                   .map((m) => {
-                    const connected = m.sources.some((s) => MAIL_SOURCES.has(s));
+                    const connected = m.sources.some((s) =>
+                      MAIL_SOURCES.has(s),
+                    );
                     return (
-                    <li key={m.id} className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{m.address}</p>
-                          <p className="fg-3 mono-xs mt-0.5">
-                            {connected
-                              ? m.sources.filter((s) => MAIL_SOURCES.has(s))[0].toUpperCase()
-                              : "UNCONNECTED"}{" "}
-                            · {m.mailbox_class.toUpperCase()}
-                          </p>
+                      <li key={m.id} className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">
+                              {m.address}
+                            </p>
+                            <p className="fg-3 mono-xs mt-0.5">
+                              {connected
+                                ? m.sources
+                                    .filter((s) => MAIL_SOURCES.has(s))[0]
+                                    .toUpperCase()
+                                : "UNCONNECTED"}{" "}
+                              · {m.mailbox_class.toUpperCase()}
+                            </p>
+                          </div>
+                          <LevelChip level={m.protection_level} />
+                          <button
+                            onClick={() => void removeMailbox(m.id)}
+                            aria-label={`Remove ${m.address}`}
+                            title="Remove mailbox"
+                            className="fg-3 cursor-pointer p-1 transition-colors hover:text-[var(--danger)]"
+                          >
+                            <Trash2 size={14} aria-hidden />
+                          </button>
                         </div>
-                        <LevelChip level={m.protection_level} />
-                        <button
-                          onClick={() => void removeMailbox(m.id)}
-                          aria-label={`Remove ${m.address}`}
-                          title="Remove mailbox"
-                          className="fg-3 cursor-pointer p-1 transition-colors hover:text-[var(--danger)]"
-                        >
-                          <Trash2 size={14} aria-hidden />
-                        </button>
-                      </div>
-                      {m.inactive_detections.length > 0 && (
-                        <p className="fg-3 mono-xs mt-2">
-                          INACTIVE: {m.inactive_detections.slice(0, 6).join(" ")}
-                          {m.inactive_detections.length > 6 && " …"}
-                        </p>
-                      )}
-                      {!connected && <MailboxConnect mailbox={m} onConnected={load} />}
-                      {connected && <MailboxActivity mailboxId={m.id} />}
-                    </li>
-                  );
-                })}
+                        {m.inactive_detections.length > 0 && (
+                          <p className="fg-3 mono-xs mt-2">
+                            INACTIVE:{" "}
+                            {m.inactive_detections.slice(0, 6).join(" ")}
+                            {m.inactive_detections.length > 6 && " …"}
+                          </p>
+                        )}
+                        {!connected && (
+                          <MailboxConnect mailbox={m} onConnected={load} />
+                        )}
+                        {connected && <MailboxActivity mailboxId={m.id} />}
+                      </li>
+                    );
+                  })}
               </ul>
             )}
             <AddMailbox onAdded={load} />
@@ -1281,7 +1427,10 @@ export default function Dashboard() {
               <ul className="mt-4 space-y-2.5" role="list">
                 {[
                   ["Acknowledged", String(stats.acknowledged)],
-                  ["Unacked over 15 min", String(stats.unacknowledged_over_15m)],
+                  [
+                    "Unacked over 15 min",
+                    String(stats.unacknowledged_over_15m),
+                  ],
                   ["Full coverage", String(stats.coverage.full ?? 0)],
                   ["Limited coverage", String(stats.coverage.limited ?? 0)],
                 ].map(([label, value]) => (
@@ -1290,13 +1439,15 @@ export default function Dashboard() {
                     className="flex items-baseline justify-between gap-3 text-sm"
                   >
                     <span className="fg-2">{label}</span>
-                    <span className="tnum font-mono font-semibold">{value}</span>
+                    <span className="tnum font-mono font-semibold">
+                      {value}
+                    </span>
                   </li>
                 ))}
               </ul>
               <p className="fg-3 mt-5 border-t pt-4 text-xs leading-relaxed">
-                Critical unacknowledged for 15 minutes escalates to IT; 60 minutes
-                to all admins, plus SMS.
+                Critical unacknowledged for 15 minutes escalates to IT; 60
+                minutes to all admins, plus SMS.
               </p>
             </div>
           )}

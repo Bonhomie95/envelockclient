@@ -244,6 +244,22 @@ export default function ConnectionAdvisor({
               </span>
             </div>
 
+            {/* Plain-English posture — "p=none" means nothing to most IT staff. */}
+            {plan.dns.dmarc_policy === "reject" ||
+            plan.dns.dmarc_policy === "quarantine" ? (
+              <p className="fg-3 mt-2 text-xs leading-relaxed">
+                DMARC is enforcing — spoofed mail claiming to be {domain.trim()} is
+                rejected or quarantined by receivers. Good.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs leading-relaxed text-[var(--warn,#d97706)]">
+                {plan.dns.dmarc_policy === "none"
+                  ? "DMARC is set to p=none — it only monitors, so anyone can still spoof this domain. Move it to p=quarantine, then p=reject."
+                  : "No DMARC record — anyone can send mail as this domain. Publish a DMARC record (start at p=none to observe, then enforce)."}{" "}
+                Guard's free DMARC reports show who's already spoofing you.
+              </p>
+            )}
+
             {plan.provider.notes && (
               <p className="fg-3 mt-4 text-xs leading-relaxed">
                 {plan.provider.notes}

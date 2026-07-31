@@ -7,6 +7,7 @@ import {
   Loader2,
   ShieldCheck,
   Trash2,
+  UserCheck,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -203,18 +204,41 @@ export default function Team() {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount: load() flips a loading flag before its first await. That's
+    // the intended pattern here, not the cascading-render case the rule targets.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  const [acting, setActing] = useState<string | null>(null);
 
   async function remove(m: Member) {
     if (!window.confirm(`Remove ${m.email}? They lose access immediately.`)) return;
     try {
       await api.removeMember(m.id);
+      window.dispatchEvent(new Event("envelock:team-changed"));
       await load();
     } catch {
       /* surfaced on next load */
     }
   }
+
+  async function approve(m: Member) {
+    setActing(m.id);
+    try {
+      await api.approveMember(m.id);
+      window.dispatchEvent(new Event("envelock:team-changed"));
+      await load();
+    } catch {
+      /* surfaced on next load */
+    } finally {
+      setActing(null);
+    }
+  }
+
+  const pendingApproval = members.filter(
+    (m) => m.status === "pending" && !m.pending_password,
+  );
 
   if (!auth.signedIn || error === "forbidden") {
     return (
@@ -270,6 +294,22 @@ export default function Team() {
         <CreateMember isOwner={isOwner} seats={seats} onCreated={load} />
       </section>
 
+      {/* Pending approvals — the colleague-join loop the dashboard's
+          "Waiting for approval" screen points admins to. */}
+      {pendingApproval.length > 0 && (
+        <div className="callout mt-8 flex flex-wrap items-center gap-3 p-4">
+          <UserCheck size={18} className="shrink-0" aria-hidden />
+          <span className="text-sm font-semibold">
+            {pendingApproval.length} colleague
+            {pendingApproval.length === 1 ? "" : "s"} waiting for approval
+          </span>
+          <span className="fg-2 text-xs">
+            They joined on your company domain and can't see anything until you
+            approve them below.
+          </span>
+        </div>
+      )}
+
       {/* Members */}
       <div className="mt-8 flex items-center gap-2">
         <Users size={16} className="accent" aria-hidden />
@@ -310,14 +350,31 @@ export default function Team() {
                   </span>
                 ) : (
                   !m.is_self && (
-                    <button
-                      onClick={() => void remove(m)}
-                      aria-label={`Remove ${m.email}`}
-                      title="Remove"
-                      className="fg-3 cursor-pointer p-1 transition-colors hover:text-[var(--danger)]"
-                    >
-                      <Trash2 size={15} aria-hidden />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {m.status === "pending" && !m.pending_password && (
+                        <Button
+                          size="sm"
+                          variant="accent"
+                          disabled={acting !== null}
+                          onClick={() => void approve(m)}
+                        >
+                          {acting === m.id ? (
+                            <Loader2 size={12} className="animate-spin" aria-hidden />
+                          ) : (
+                            <UserCheck size={12} aria-hidden />
+                          )}
+                          APPROVE
+                        </Button>
+                      )}
+                      <button
+                        onClick={() => void remove(m)}
+                        aria-label={`Remove ${m.email}`}
+                        title="Remove"
+                        className="fg-3 cursor-pointer p-1 transition-colors hover:text-[var(--danger)]"
+                      >
+                        <Trash2 size={15} aria-hidden />
+                      </button>
+                    </div>
                   )
                 )}
               </li>

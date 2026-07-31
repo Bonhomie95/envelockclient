@@ -93,6 +93,24 @@ export function isLikelyDisposableEmail(email: string): boolean {
   return DISPOSABLE.has(domain);
 }
 
+// Consumer free-mail domains — mirrors the server's _FREE_MAIL (util/domains.py).
+// A company on Google Workspace / Microsoft 365 is NOT here: it uses its own
+// domain, so it stays allowed. Only the consumer domains themselves are blocked.
+const CONSUMER_MAIL = new Set([
+  "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "outlook.com",
+  "hotmail.com", "live.com", "msn.com", "aol.com", "icloud.com", "me.com",
+  "proton.me", "protonmail.com", "gmx.com", "mail.com", "zoho.com",
+  "qq.com", "163.com", "126.com", "sina.com", "foxmail.com",
+  "naver.com", "yandex.com", "rediffmail.com",
+]);
+
+export function isConsumerEmail(email: string): boolean {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  return CONSUMER_MAIL.has(domain);
+}
+
 /* Structural domain check that mirrors the server's `valid_domain`
    (security/limits.py). Catches the common signup mistake of typing a company
    name ("Acme Corp") into the domain field — which reduces to a truthy-but-bogus

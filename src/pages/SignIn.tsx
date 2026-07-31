@@ -13,6 +13,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { ApiError, api, auth } from "../lib/api";
 import {
   checkPassphrase,
+  isConsumerEmail,
   isLikelyDisposableEmail,
   looksLikeDomain,
 } from "../lib/passphrase";
@@ -65,6 +66,14 @@ export default function SignIn() {
     // we create the account — not with a silent failure after registration.
     if (mode === "signup" && domain && !looksLikeDomain(domain)) {
       setError("Enter your company's domain, like yourcompany.com — not its name.");
+      return;
+    }
+    if (mode === "signup" && isConsumerEmail(email)) {
+      setError(
+        "Use your work email — consumer inboxes like Gmail or Outlook.com can't " +
+          "be used. Company accounts on Google Workspace or Microsoft 365 work; " +
+          "sign up with your own company address.",
+      );
       return;
     }
     setBusy(true);
@@ -255,6 +264,16 @@ export default function SignIn() {
                     inbox so you can receive fraud alerts and account recovery.
                   </p>
                 )}
+                {mode === "signup" &&
+                  !isLikelyDisposableEmail(email) &&
+                  isConsumerEmail(email) && (
+                    <p className="mt-2 text-xs font-medium text-red-600">
+                      Use your work email. Envelock protects a company domain, so
+                      consumer inboxes like Gmail or Outlook.com can't be used —
+                      but if your company runs on Google&nbsp;Workspace or
+                      Microsoft&nbsp;365, sign up with your own company address.
+                    </p>
+                  )}
               </div>
 
               <div>

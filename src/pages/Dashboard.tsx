@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { createElement, useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
   Banknote,
   Check,
   CheckCircle2,
   Copy,
+  CreditCard,
   Fingerprint,
   Forward,
   Globe,
@@ -50,6 +51,7 @@ const MAIL_SOURCES = new Set([
 import { Button, LevelChip, TierChip, cn } from "../components/primitives";
 import ConnectionAdvisor from "../components/ConnectionAdvisor";
 import MfaEnroll from "../components/MfaEnroll";
+import { PLAN_RANK, PLAN_TIERS } from "../lib/plans";
 
 interface Me {
   email: string;
@@ -101,7 +103,9 @@ function AlertRow({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const Icon = iconFor(alert);
+  // Lowercase + createElement: the icon is a *value* looked up from a stable
+  // module-level map, not a component defined during render.
+  const icon = iconFor(alert);
   const acked = alert.state !== "open";
 
   async function run(action: "ack" | "quarantine" | "fraud" | "dismiss") {
@@ -133,7 +137,11 @@ function AlertRow({
       </div>
 
       <div className="mt-4 flex gap-4">
-        <Icon size={17} className="fg-3 mt-0.5 shrink-0" aria-hidden />
+        {createElement(icon, {
+          size: 17,
+          className: "fg-3 mt-0.5 shrink-0",
+          "aria-hidden": true,
+        })}
         <div className="min-w-0 flex-1">
           <h3 className="text-sm leading-snug font-semibold text-pretty">
             {alert.title}
@@ -282,6 +290,60 @@ function Simulation({ domain }: { domain: string }) {
   );
 }
 
+/* Where each provider issues the app-specific password an IMAP login needs when
+   the account has 2FA on (it usually does). Keyed by the advisor's provider id,
+   with an IMAP-host fallback so an unrecognised-but-known host still helps. This
+   is the single biggest IMAP-setup snag — "it rejected my normal password" — so
+   we answer it inline instead of leaving the user to search. */
+interface ImapHelp {
+  label: string;
+  url: string;
+  note: string;
+}
+const IMAP_HELP: Record<string, ImapHelp> = {
+  google: {
+    label: "Google app password",
+    url: "https://myaccount.google.com/apppasswords",
+    note: "Google rejects your normal password over IMAP — create a 16-character app password.",
+  },
+  microsoft365: {
+    label: "Microsoft app password",
+    url: "https://account.microsoft.com/security",
+    note: "With security defaults on, create an app password; your admin may need to enable IMAP first.",
+  },
+  icloud: {
+    label: "Apple app-specific password",
+    url: "https://appleid.apple.com/account/manage",
+    note: "iCloud Mail requires an app-specific password for IMAP.",
+  },
+  fastmail: {
+    label: "Fastmail app password",
+    url: "https://app.fastmail.com/settings/security/apppassword",
+    note: "Create an app password scoped to IMAP.",
+  },
+  zoho: {
+    label: "Zoho app password",
+    url: "https://accounts.zoho.com/home#security/app_password",
+    note: "Generate an application-specific password for mail access.",
+  },
+};
+const IMAP_HELP_BY_HOST: Record<string, string> = {
+  "imap.gmail.com": "google",
+  "outlook.office365.com": "microsoft365",
+  "imap.mail.me.com": "icloud",
+  "imap.fastmail.com": "fastmail",
+  "imap.zoho.com": "zoho",
+};
+
+function imapHelpFor(plan: ConnectionPlan | null): ImapHelp | null {
+  if (!plan) return null;
+  const byId = IMAP_HELP[plan.provider.id];
+  if (byId) return byId;
+  const host = plan.imap.host ?? "";
+  const mapped = IMAP_HELP_BY_HOST[host];
+  return mapped ? IMAP_HELP[mapped] : null;
+}
+
 /* Connect a mailbox using the RIGHT method for its actual mail provider — detected
    from the domain's MX records, not from whichever OAuth apps this deployment
    happens to have configured. A Google/Microsoft domain gets one-click OAuth; any
@@ -306,6 +368,7 @@ function MailboxConnect({
   const [host, setHost] = useState("");
   const [port, setPort] = useState(993);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [ingest, setIngest] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -406,6 +469,7 @@ function MailboxConnect({
   const providerName = plan?.provider.name ?? null;
   const isMs = rec === "oauth_microsoft" && configured.includes("microsoft");
   const isGoogle = rec === "oauth_google" && configured.includes("google");
+  const imapHelp = imapHelpFor(plan);
 
   return (
     <div className="mt-2.5">
@@ -457,36 +521,77 @@ function MailboxConnect({
       </div>
 
       {mode === "imap" && (
-        <div className="mt-3 space-y-2 border-l-2 border-[var(--accent)] pl-3">
-          <p className="fg-3 text-xs leading-relaxed">
-            Use an <span className="font-semibold">app-specific password</span>{" "}
-            where your provider offers one. Stored encrypted; we never show it
-            again.
-          </p>
-          <input
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="imap.yourprovider.com"
-            className="field text-sm"
-            autoComplete="off"
-          />
-          <div className="flex gap-2">
-            <input
-              value={port}
-              onChange={(e) => setPort(Number(e.target.value) || 993)}
-              inputMode="numeric"
-              className="field w-24 text-sm"
-              aria-label="IMAP port"
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="mailbox password"
-              className="field flex-1 text-sm"
-              autoComplete="off"
-            />
+        <div className="mt-3 space-y-3 border-l-2 border-[var(--accent)] pl-3">
+          {/* Step 1 — get the right credential. This is where IMAP setups fail:
+              providers with 2FA reject the normal password over IMAP. */}
+          <div>
+            <p className="fg-2 text-xs leading-relaxed">
+              <span className="accent font-semibold">1.</span> Sign in as{" "}
+              <code className="font-mono">{address}</code> and create an{" "}
+              <span className="font-semibold">app-specific password</span> — most
+              providers reject your normal password over IMAP once two-factor is on.
+            </p>
+            {imapHelp && (
+              <a
+                href={imapHelp.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="accent mono-xs mt-1.5 inline-flex items-center gap-1.5 hover:underline"
+              >
+                <KeyRound size={11} aria-hidden /> {imapHelp.label} →
+              </a>
+            )}
+            {imapHelp && (
+              <p className="fg-3 mt-1 text-[11px] leading-relaxed">{imapHelp.note}</p>
+            )}
           </div>
+
+          {/* Step 2 — server + credential. Host/port are prefilled from the
+              detected provider; the user usually only pastes the password. */}
+          <div className="space-y-2">
+            <p className="fg-2 text-xs">
+              <span className="accent font-semibold">2.</span> Paste it below. The
+              server details are prefilled{plan?.detected ? " from your provider" : ""}.
+            </p>
+            <label className="fg-3 mono-xs block">IMAP SERVER</label>
+            <div className="flex gap-2">
+              <input
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                placeholder="imap.yourprovider.com"
+                className="field flex-1 text-sm"
+                autoComplete="off"
+                aria-label="IMAP host"
+              />
+              <input
+                value={port}
+                onChange={(e) => setPort(Number(e.target.value) || 993)}
+                inputMode="numeric"
+                className="field w-20 text-sm"
+                aria-label="IMAP port"
+              />
+            </div>
+            <label className="fg-3 mono-xs block">APP PASSWORD</label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="paste the app password"
+                className="field w-full pr-16 text-sm"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                className="fg-3 mono-xs absolute inset-y-0 right-2 my-auto h-5 cursor-pointer hover:text-[var(--fg)]"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "HIDE" : "SHOW"}
+              </button>
+            </div>
+          </div>
+
           <Button
             size="sm"
             variant="accent"
@@ -496,8 +601,13 @@ function MailboxConnect({
             {busy === "imap" ? (
               <Loader2 size={12} className="animate-spin" aria-hidden />
             ) : null}{" "}
-            CONNECT
+            CONNECT MAILBOX
           </Button>
+          <p className="fg-3 text-[11px] leading-relaxed">
+            Stored encrypted with a key we can't read in bulk, decrypted only inside
+            the connection service. We never display it again. Connecting enables
+            full content + fraud detection and lets us quarantine dangerous mail.
+          </p>
         </div>
       )}
 
@@ -1010,6 +1120,220 @@ function MailboxActivity({ mailboxId }: { mailboxId: string }) {
   );
 }
 
+/* Getting-started checklist — the first thing a new owner needs, driven entirely
+   by real tenant state. It disappears once every step is done, so it never nags a
+   set-up account. Each open step carries the one action that completes it. */
+function OnboardingChecklist({
+  mailboxes,
+  connectedCount,
+  mfaEnabled,
+  paymentOk,
+  onSetupMfa,
+}: {
+  mailboxes: number;
+  connectedCount: number;
+  mfaEnabled: boolean;
+  paymentOk: boolean;
+  onSetupMfa: () => void;
+}) {
+  const steps = [
+    {
+      key: "add",
+      done: mailboxes > 0,
+      label: "Add the mailboxes that touch money",
+      hint: "Finance, executives, accounts payable — the ones fraud targets.",
+      action: (
+        <a href="#coverage" className="accent mono-xs hover:underline">
+          ADD MAILBOXES →
+        </a>
+      ),
+    },
+    {
+      key: "connect",
+      done: connectedCount > 0,
+      label: "Connect a mailbox for full protection",
+      hint: "One click on Microsoft/Google, or IMAP / forwarding for anything else.",
+      action: (
+        <a href="#coverage" className="accent mono-xs hover:underline">
+          CONNECT →
+        </a>
+      ),
+    },
+    {
+      key: "mfa",
+      done: mfaEnabled,
+      label: "Turn on two-factor authentication",
+      hint: "Stops a stolen password from becoming a stolen account.",
+      action: (
+        <button
+          onClick={onSetupMfa}
+          className="accent mono-xs cursor-pointer hover:underline"
+        >
+          SET UP →
+        </button>
+      ),
+    },
+    {
+      key: "billing",
+      done: paymentOk,
+      label: "Add billing to keep full protection",
+      hint: "Your trial drops to Guard (free) if no card is on file when it ends.",
+      action: (
+        <Link to="/billing" className="accent mono-xs hover:underline">
+          SET UP BILLING →
+        </Link>
+      ),
+    },
+  ];
+
+  const doneCount = steps.filter((s) => s.done).length;
+  if (doneCount === steps.length) return null; // fully set up — get out of the way
+
+  return (
+    <div className="panel p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="sect-label">Getting started</h2>
+        <span className="fg-3 mono-xs tnum">
+          {doneCount} / {steps.length} done
+        </span>
+      </div>
+      <ul className="mt-4 space-y-3" role="list">
+        {steps.map((s) => (
+          <li key={s.key} className="flex items-start gap-3">
+            <span
+              className={cn(
+                "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
+                s.done
+                  ? "border-[var(--accent)] bg-[var(--accent)]"
+                  : "border-[var(--rule)]",
+              )}
+              aria-hidden
+            >
+              {s.done && <Check size={11} className="text-[var(--accent-ink)]" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <span
+                  className={cn(
+                    "text-sm font-medium",
+                    s.done && "fg-3 line-through",
+                  )}
+                >
+                  {s.label}
+                </span>
+                {!s.done && s.action}
+              </div>
+              {!s.done && (
+                <p className="fg-3 mt-0.5 text-xs leading-relaxed">{s.hint}</p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* Upgrade CTA — shown to anyone on Guard (free) or Essential (middle). During an
+   active trial the tenant is already on Complete, so this stays hidden; once the
+   trial lapses to Guard, or for a genuine free/Essential tenant, the higher
+   plan(s) appear with a one-click upgrade. */
+function UpgradePlans({
+  tenant,
+  onChanged,
+}: {
+  tenant: TenantInfo;
+  onChanged: () => Promise<void>;
+}) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const currentRank = PLAN_RANK[tenant.plan] ?? 0;
+  const upgrades = PLAN_TIERS.filter((p) => (PLAN_RANK[p.id] ?? 0) > currentRank);
+  if (upgrades.length === 0) return null;
+
+  async function upgrade(planId: string) {
+    setBusy(planId);
+    setNote(null);
+    try {
+      // During the trial this switches the plan instantly (no card needed). Once
+      // the trial has lapsed the server returns 402 — send them to checkout to
+      // add a payment method, which then activates the plan.
+      await api.changePlan(planId);
+      await onChanged();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 402) {
+        navigate(`/billing?plan=${planId}`);
+        return;
+      }
+      setNote(
+        e instanceof ApiError
+          ? e.message
+          : "Could not change plan. Please try again.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="panel p-5">
+      <h2 className="sect-label">
+        {tenant.plan === "guard" ? "Upgrade your protection" : "Upgrade"}
+      </h2>
+      <p className="fg-3 mt-1 text-xs leading-relaxed">
+        {tenant.plan === "guard"
+          ? "You're on Guard (free) — domain & brand monitoring only. Add mailbox protection:"
+          : "Move up to full account-takeover protection:"}
+      </p>
+      <div className="mt-4 space-y-3">
+        {upgrades.map((p) => (
+          <div key={p.id} className="rounded border border-[var(--rule)] p-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-sm font-semibold">{p.name}</span>
+              <span className="tnum">
+                <span className="font-mono text-base font-semibold">{p.price}</span>
+                <span className="fg-3 text-[11px]">{p.per}</span>
+              </span>
+            </div>
+            <p className="fg-3 mt-1 text-xs">{p.blurb}</p>
+            <ul className="fg-2 mt-2.5 space-y-1" role="list">
+              {p.features.map((f) => (
+                <li key={f} className="flex items-start gap-1.5 text-xs">
+                  <Check size={12} className="accent mt-0.5 shrink-0" aria-hidden />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <Button
+              size="sm"
+              variant="accent"
+              className="mt-3 w-full"
+              disabled={busy !== null}
+              onClick={() => upgrade(p.id)}
+            >
+              {busy === p.id ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : null}
+              UPGRADE TO {p.name.toUpperCase()}
+            </Button>
+          </div>
+        ))}
+      </div>
+      {note && (
+        <p className="mt-3 text-xs text-[var(--warn,#d97706)]" role="status">
+          {note}
+        </p>
+      )}
+      <p className="fg-3 mt-3 text-[11px] leading-relaxed">
+        15 days free on signup. Pay monthly with no penalty, or save up to 20%
+        yearly. Bigger teams pay much less per seat.
+      </p>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [mailboxes, setMailboxes] = useState<MailboxRecord[]>([]);
@@ -1056,6 +1380,9 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount: load() flips a loading flag before its first await. That's
+    // the intended pattern here, not the cascading-render case the rule targets.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -1255,6 +1582,40 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Trial countdown — shown while the trial runs and no card is on file, so
+          the days remaining are always in view with a one-click path to keep it. */}
+      {tenant?.trial.active &&
+        tenant.trial.days_left !== null &&
+        !tenant.trial.payment_method_ok && (
+          <div className="shell pt-4">
+            <div
+              className={cn(
+                "callout flex flex-col gap-3 p-4 sm:flex-row sm:items-center",
+                tenant.trial.days_left <= 3 && "border-[var(--danger)]",
+              )}
+            >
+              <Banknote size={18} className="shrink-0" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">
+                  {tenant.trial.days_left} day
+                  {tenant.trial.days_left === 1 ? "" : "s"} left in your{" "}
+                  {(tenant.subscribed_plan ?? "complete").toString().replace(/^\w/, (c) => c.toUpperCase())}{" "}
+                  trial
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed">
+                  Add a payment method to keep full protection when it ends —
+                  otherwise you drop to Guard (free), never locked out.
+                </p>
+              </div>
+              <Link to="/billing" className="shrink-0">
+                <Button size="sm" variant="accent">
+                  <CreditCard size={13} aria-hidden /> SET UP BILLING
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+
       <div className="shell grid12 py-8">
         <section className="col-span-12 lg:col-span-8">
           <div className="panel">
@@ -1316,9 +1677,27 @@ export default function Dashboard() {
         </section>
 
         <aside className="col-span-12 mt-6 space-y-6 lg:col-span-4 lg:mt-0">
+          {tenant && me && (
+            <OnboardingChecklist
+              mailboxes={mailboxes.length}
+              connectedCount={
+                mailboxes.filter((m) => m.sources.some((s) => MAIL_SOURCES.has(s)))
+                  .length
+              }
+              mfaEnabled={me.mfa_enabled}
+              paymentOk={tenant.trial.payment_method_ok}
+              onSetupMfa={() => {
+                setMfaOpen(true);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          )}
+
+          {tenant && <UpgradePlans tenant={tenant} onChanged={load} />}
+
           <ConnectionAdvisor defaultDomain={hasDomain ? domain : ""} />
 
-          <div className="panel">
+          <div className="panel" id="coverage">
             <div className="border-b px-5 py-3.5">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="sect-label">Mailbox coverage</h2>

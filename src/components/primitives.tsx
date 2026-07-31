@@ -8,6 +8,9 @@ import {
 } from "lucide-react";
 import type { Tier } from "../lib/api";
 
+// `cn` lives here beside the components that use it most; it's imported across
+// the app. This only affects Fast Refresh granularity in dev, not correctness.
+// eslint-disable-next-line react-refresh/only-export-components
 export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
 }

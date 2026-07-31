@@ -507,6 +507,9 @@ export default function Profile() {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount: load() flips a loading flag before its first await. That's
+    // the intended pattern here, not the cascading-render case the rule targets.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 

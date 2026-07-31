@@ -27,6 +27,7 @@ import Docs from "./pages/Docs";
 import SignIn from "./pages/SignIn";
 import Profile from "./pages/Profile";
 import Team from "./pages/Team";
+import Billing from "./pages/Billing";
 
 function Mark({ size = 26 }: { size?: number }) {
   return (
@@ -88,6 +89,9 @@ function Header() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  // Close the mobile menu when the route changes — a deliberate sync to the
+  // router, not the derived-state anti-pattern the rule guards against.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setOpen(false), [pathname]);
 
   // Re-read on every navigation (useLocation re-renders the header), so signing
@@ -377,9 +381,37 @@ const APP_NAV = [
 
 function AppHeader() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const signedIn = auth.signedIn;
   const isAdmin = auth.role === "owner" || auth.role === "admin";
   const nav = APP_NAV.filter((i) => !i.adminOnly || isAdmin);
+
+  // Show admins how many colleagues are waiting for approval, right on the Team
+  // tab — the other half of the dashboard's "Waiting for approval" screen.
+  // Re-checked on navigation, and immediately when the Team page approves or
+  // removes someone (via a lightweight window event) so the badge never lags.
+  const [pending, setPending] = useState(0);
+  useEffect(() => {
+    if (!signedIn || !isAdmin) return;
+    let live = true;
+    const refresh = () =>
+      api
+        .members()
+        .then((r) => {
+          if (live)
+            setPending(
+              r.members.filter((m) => m.status === "pending" && !m.pending_password)
+                .length,
+            );
+        })
+        .catch(() => {});
+    void refresh();
+    window.addEventListener("envelock:team-changed", refresh);
+    return () => {
+      live = false;
+      window.removeEventListener("envelock:team-changed", refresh);
+    };
+  }, [signedIn, isAdmin, pathname]);
 
   async function signOut() {
     try {
@@ -424,6 +456,14 @@ function AppHeader() {
               >
                 <Icon size={15} aria-hidden />
                 <span className="hidden sm:inline">{label}</span>
+                {to === "/team" && pending > 0 && (
+                  <span
+                    className="font-mono ml-0.5 grid min-w-4 place-items-center rounded-full bg-[var(--accent)] px-1 text-[10px] font-semibold text-[var(--accent-ink)]"
+                    aria-label={`${pending} awaiting approval`}
+                  >
+                    {pending}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -500,6 +540,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/team" element={<Team />} />
+          <Route path="/billing" element={<Billing />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Routes>

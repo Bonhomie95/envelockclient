@@ -43,6 +43,8 @@ export interface ScanHit {
   similarity: number;
   tier: Tier;
   armed: boolean;
+  /** ISO registration date from RDAP, or null if unregistered / unknown. */
+  registered_at: string | null;
 }
 
 export interface ScanResult {
@@ -427,6 +429,12 @@ export const api = {
       note: string;
     }>("/api/v1/members", { method: "POST", body: JSON.stringify(body) }),
 
+  approveMember: (userId: string) =>
+    request<{ approved: boolean; email: string }>(
+      `/api/v1/members/${userId}/approve`,
+      { method: "POST" },
+    ),
+
   removeMember: (userId: string) =>
     request<{ removed: boolean; email: string }>(
       `/api/v1/members/${userId}/reject`,
@@ -441,6 +449,16 @@ export const api = {
     ),
 
   tenant: () => request<TenantInfo>("/api/v1/tenant"),
+
+  // Change the subscribed plan (owner only). Moving to a paid tier needs an
+  // active trial or a card on file; the server returns 402 otherwise.
+  changePlan: (plan: string) =>
+    request<{
+      subscribed_plan: string;
+      plan: string;
+      payment_method_ok: boolean;
+      trial_active: boolean;
+    }>("/api/v1/tenant/plan", { method: "POST", body: JSON.stringify({ plan }) }),
 
   // Full account deletion. The domain trial ledger is retained (anti-abuse), so a
   // returning owner gets no fresh trial. Requires the password (+ code if MFA on).
@@ -582,6 +600,21 @@ export const api = {
   // ── Billing / payment gate ──────────────────────────────────────────────────
   paymentProviders: () =>
     request<{ configured: string[] }>("/api/v1/billing/providers"),
+
+  // Start a hosted Stripe Checkout for a paid plan; returns the URL to redirect
+  // the browser to. Activation happens server-side via the Stripe webhook.
+  startCheckout: (plan: string) =>
+    request<{ url: string; id: string }>("/api/v1/billing/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan }),
+    }),
+
+  // Open the Stripe-hosted billing portal (update card, invoices, cancel).
+  billingPortal: (return_path = "/billing") =>
+    request<{ url: string }>("/api/v1/billing/portal", {
+      method: "POST",
+      body: JSON.stringify({ return_path }),
+    }),
 
   confirmPayment: (body: {
     provider: string;

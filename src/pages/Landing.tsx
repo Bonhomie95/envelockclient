@@ -15,6 +15,19 @@ import { Button, SectionHead, TierChip, cn } from "../components/primitives";
 /* Deliberately plain. Anything technical belongs in /docs — a landing page
    that reads like a manual convinces nobody. */
 
+/* "registered 3 days ago" reads as urgency far better than a raw date — a
+   lookalike registered this week is the one actively being weaponised. */
+function registeredLabel(iso: string): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return "registered";
+  const days = Math.floor((Date.now() - when.getTime()) / 86_400_000);
+  if (days <= 0) return "registered today";
+  if (days === 1) return "registered 1 day ago";
+  if (days < 30) return `registered ${days} days ago`;
+  if (days < 365) return `registered ${Math.floor(days / 30)} mo ago`;
+  return `registered ${when.getFullYear()}`;
+}
+
 function Scanner() {
   const [domain, setDomain] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -96,11 +109,15 @@ function Scanner() {
                 <li key={hit.candidate} className="flex items-center gap-3 py-2.5">
                   <TierChip tier={hit.tier} />
                   <code className="flex-1 truncate font-mono text-xs">{hit.candidate}</code>
+                  <span className="fg-3 mono-xs shrink-0 tnum">
+                    {hit.registered_at ? registeredLabel(hit.registered_at) : "unregistered"}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
           <p className="fg-3 mt-4 text-xs">
+            Sorted newest first — a domain registered days ago is the live threat.
             We keep watching these for free, and tell you if one starts sending mail.
           </p>
         </div>

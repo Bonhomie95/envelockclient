@@ -158,6 +158,13 @@ export interface TenantInfo {
     active: boolean;
     payment_method_ok: boolean;
   };
+  mailboxes?: {
+    used: number;
+    capacity: number;
+    included: number;
+    extra_seats: number;
+    can_add: boolean;
+  };
   domains: {
     name: string;
     registrable_domain: string;
@@ -608,6 +615,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ plan }),
     }),
+
+  // Buy additional mailbox seats (verify-instrument model; sandbox works in dev).
+  buySeats: (count: number, provider: string, reference: string) =>
+    request<{ extra_mailbox_seats: number; purchased: number }>(
+      "/api/v1/billing/seats",
+      { method: "POST", body: JSON.stringify({ count, provider, reference }) },
+    ),
 
   // Open the Stripe-hosted billing portal (update card, invoices, cancel).
   billingPortal: (return_path = "/billing") =>

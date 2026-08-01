@@ -170,8 +170,8 @@ function CreateMember({
       </div>
       <p className="fg-3 mt-2 text-xs leading-relaxed">
         {role === "admin"
-          ? "Admins get oversight of every mailbox and the audit trail."
-          : "Members see only their own mailbox."}
+          ? "Admins get oversight of every mailbox and the audit trail. One admin still uses a seat."
+          : "Members see only their own mailbox. A member login can only be created for someone you're already protecting — the email must match one of your protected mailboxes."}
       </p>
       {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
     </div>

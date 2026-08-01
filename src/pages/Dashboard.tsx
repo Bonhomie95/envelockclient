@@ -770,7 +770,14 @@ function ClassPicker({
 /* Add mailboxes to the tenant — how IT brings whole departments under protection.
    A 50-seat domain is not added one box at a time, so this defaults to a bulk
    paste; a single-address mode stays for the one-off. */
-function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
+function AddMailbox({
+  onAdded,
+  mailboxes,
+}: {
+  onAdded: () => Promise<void>;
+  mailboxes?: TenantInfo["mailboxes"];
+}) {
+  const full = mailboxes ? !mailboxes.can_add : false;
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"many" | "one">("many");
   const [address, setAddress] = useState("");
@@ -834,19 +841,52 @@ function AddMailbox({ onAdded }: { onAdded: () => Promise<void> }) {
   if (!open) {
     return (
       <div className="border-t p-4">
-        <Button
-          size="sm"
-          variant="line"
-          className="w-full"
-          onClick={() => setOpen(true)}
-        >
-          <Plus size={13} aria-hidden /> ADD MAILBOXES
-        </Button>
-        <p className="fg-3 mt-2 text-xs leading-relaxed">
-          Paste your whole finance team or the full domain at once.
-          Microsoft&nbsp;365 and Google can import the entire organisation with
-          one admin consent; other providers connect per mailbox after adding.
-        </p>
+        {mailboxes && (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="fg-3 mono-xs tnum">
+              {mailboxes.used} / {mailboxes.capacity} SEATS USED
+            </span>
+            {mailboxes.extra_seats > 0 && (
+              <span className="fg-3 mono-xs">+{mailboxes.extra_seats} bought</span>
+            )}
+          </div>
+        )}
+        {full ? (
+          <div className="callout p-3">
+            <p className="text-xs font-semibold">
+              {mailboxes && mailboxes.capacity === 0
+                ? "Your plan can't protect mailboxes"
+                : `All ${mailboxes?.capacity ?? ""} mailbox seats are in use`}
+            </p>
+            <p className="fg-2 mt-1 text-[11px] leading-relaxed">
+              {mailboxes && mailboxes.capacity === 0
+                ? "Upgrade to Essential or Complete to protect mailboxes."
+                : "Buy more seats (or upgrade your plan) to add another mailbox."}
+            </p>
+            <Link to="/billing" className="mt-2 inline-block">
+              <Button size="sm" variant="accent">
+                <CreditCard size={12} aria-hidden />
+                {mailboxes && mailboxes.capacity === 0 ? "UPGRADE" : "BUY SEATS"}
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <>
+            <Button
+              size="sm"
+              variant="line"
+              className="w-full"
+              onClick={() => setOpen(true)}
+            >
+              <Plus size={13} aria-hidden /> ADD MAILBOXES
+            </Button>
+            <p className="fg-3 mt-2 text-xs leading-relaxed">
+              Paste your whole finance team or the full domain at once.
+              Microsoft&nbsp;365 and Google can import the entire organisation with
+              one admin consent; other providers connect per mailbox after adding.
+            </p>
+          </>
+        )}
       </div>
     );
   }
@@ -1793,7 +1833,7 @@ export default function Dashboard() {
                   })}
               </ul>
             )}
-            <AddMailbox onAdded={load} />
+            <AddMailbox onAdded={load} mailboxes={tenant?.mailboxes} />
           </div>
 
           <Simulation domain={hasDomain ? domain : "example.com"} />

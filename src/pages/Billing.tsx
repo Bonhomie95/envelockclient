@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Check, CreditCard, Loader2, Lock, ShieldCheck } from "lucide-react";
+import { Check, CreditCard, Loader2, Lock, Plus, ShieldCheck } from "lucide-react";
 import { ApiError, api, auth, type TenantInfo } from "../lib/api";
 import { PLAN_TIERS, planTier } from "../lib/plans";
 import { Button, cn } from "../components/primitives";
@@ -27,6 +27,9 @@ export default function Billing() {
   );
   const [provider, setProvider] = useState<string>("");
   const [reference, setReference] = useState("");
+  const [seatCount, setSeatCount] = useState(1);
+  const [seatBusy, setSeatBusy] = useState(false);
+  const [seatMsg, setSeatMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -83,6 +86,28 @@ export default function Billing() {
       live = false;
     };
   }, [status]);
+
+  async function buySeats() {
+    if (!provider) {
+      setSeatMsg("No payment method is available on this deployment yet.");
+      return;
+    }
+    setSeatBusy(true);
+    setSeatMsg(null);
+    try {
+      const r = await api.buySeats(
+        seatCount,
+        provider,
+        reference.trim() || "seat-purchase",
+      );
+      setSeatMsg(`Added ${r.purchased} seat${r.purchased === 1 ? "" : "s"}.`);
+      await load();
+    } catch (e) {
+      setSeatMsg(e instanceof ApiError ? e.message : "Could not buy seats.");
+    } finally {
+      setSeatBusy(false);
+    }
+  }
 
   async function openPortal() {
     setBusy(true);
@@ -419,6 +444,56 @@ export default function Billing() {
               : "Billed monthly. Cancel anytime; you drop to Guard (free), never locked out."}
           </p>
         </div>
+
+        {/* Mailbox seats — buy capacity beyond the plan's included allowance. */}
+        {tenant?.mailboxes && (
+          <div className="panel mt-4 p-5">
+            <h2 className="sect-label">Mailbox seats</h2>
+            <div className="mt-3 flex items-baseline justify-between gap-3">
+              <span className="fg-2 text-sm">In use</span>
+              <span className="tnum font-mono text-sm font-semibold">
+                {tenant.mailboxes.used} / {tenant.mailboxes.capacity}
+                {tenant.mailboxes.extra_seats > 0 && (
+                  <span className="fg-3 text-[11px]">
+                    {" "}
+                    (+{tenant.mailboxes.extra_seats} bought)
+                  </span>
+                )}
+              </span>
+            </div>
+            <p className="fg-3 mt-2 text-[11px] leading-relaxed">
+              Your {(tenant.subscribed_plan ?? tenant.plan)} plan includes{" "}
+              {tenant.mailboxes.included}. Buy more to protect additional mailboxes.
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={seatCount}
+                onChange={(e) =>
+                  setSeatCount(Math.max(1, Math.min(500, Number(e.target.value) || 1)))
+                }
+                aria-label="Seats to buy"
+                className="field w-20 text-sm"
+              />
+              <Button
+                size="sm"
+                variant="line"
+                disabled={seatBusy || !provider}
+                onClick={buySeats}
+              >
+                {seatBusy ? (
+                  <Loader2 size={12} className="animate-spin" aria-hidden />
+                ) : (
+                  <Plus size={12} aria-hidden />
+                )}
+                BUY SEAT{seatCount === 1 ? "" : "S"}
+              </Button>
+            </div>
+            {seatMsg && <p className="fg-3 mt-2 text-[11px]">{seatMsg}</p>}
+          </div>
+        )}
       </aside>
     </main>
   );

@@ -288,18 +288,8 @@ function ChangePassword({ me }: { me: Me }) {
     }
   }
 
-  // Sensitive changes are gated behind MFA (mirrors the server). Guide the user
-  // to enrol rather than showing a form the API would reject.
-  if (!me.mfa_enabled) {
-    return (
-      <p className="fg-3 flex items-start gap-2 text-xs leading-relaxed">
-        <ShieldAlert size={13} className="mt-0.5 shrink-0" aria-hidden />
-        Turn on two-factor authentication above to change your password — account
-        keys are protected by a second factor.
-      </p>
-    );
-  }
-
+  // The password can be changed with just the current password when MFA is off;
+  // with MFA on, a fresh code is also required (the field below is conditional).
   if (!open) {
     return (
       <Button size="sm" variant="line" onClick={() => setOpen(true)}>

@@ -1291,7 +1291,9 @@ function UpgradePlans({
 
   const currentRank = PLAN_RANK[tenant.plan] ?? 0;
   const upgrades = PLAN_TIERS.filter((p) => (PLAN_RANK[p.id] ?? 0) > currentRank);
-  if (upgrades.length === 0) return null;
+  const planName =
+    (tenant.subscribed_plan ?? tenant.plan).charAt(0).toUpperCase() +
+    (tenant.subscribed_plan ?? tenant.plan).slice(1);
 
   async function upgrade(planId: string) {
     setBusy(planId);
@@ -1319,16 +1321,36 @@ function UpgradePlans({
 
   return (
     <div className="panel p-5">
-      <h2 className="sect-label">
-        {tenant.plan === "guard" ? "Upgrade your protection" : "Upgrade"}
-      </h2>
-      <p className="fg-3 mt-1 text-xs leading-relaxed">
-        {tenant.plan === "guard"
-          ? "You're on Guard (free) — domain & brand monitoring only. Add mailbox protection:"
-          : "Move up to full account-takeover protection:"}
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="sect-label">Your plan</h2>
+        <Link to="/billing" className="accent mono-xs hover:underline">
+          MANAGE BILLING →
+        </Link>
+      </div>
+      <p className="fg-2 mt-2 text-sm">
+        <span className="font-semibold">{planName}</span>
+        {tenant.trial.active && (
+          <span className="fg-3">
+            {" "}
+            · trial{tenant.trial.days_left !== null ? `, ${tenant.trial.days_left}d left` : ""}
+          </span>
+        )}
       </p>
-      <div className="mt-4 space-y-3">
-        {upgrades.map((p) => (
+
+      {upgrades.length === 0 ? (
+        <p className="fg-3 mt-2 text-xs leading-relaxed">
+          You're on Complete — the top plan, with full account-takeover protection.
+          Change plan, update your card, or buy more mailbox seats from billing.
+        </p>
+      ) : (
+        <>
+          <p className="fg-3 mt-2 text-xs leading-relaxed">
+            {tenant.plan === "guard"
+              ? "You're on Guard (free) — domain & brand monitoring only. Add mailbox protection:"
+              : "Move up to full account-takeover protection:"}
+          </p>
+          <div className="mt-4 space-y-3">
+            {upgrades.map((p) => (
           <div key={p.id} className="rounded border border-[var(--rule)] p-4">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-sm font-semibold">{p.name}</span>
@@ -1360,16 +1382,18 @@ function UpgradePlans({
             </Button>
           </div>
         ))}
-      </div>
+          </div>
+          <p className="fg-3 mt-3 text-[11px] leading-relaxed">
+            15 days free on signup. Pay monthly with no penalty, or save up to 20%
+            yearly. Bigger teams pay much less per seat.
+          </p>
+        </>
+      )}
       {note && (
         <p className="mt-3 text-xs text-[var(--warn,#d97706)]" role="status">
           {note}
         </p>
       )}
-      <p className="fg-3 mt-3 text-[11px] leading-relaxed">
-        15 days free on signup. Pay monthly with no penalty, or save up to 20%
-        yearly. Bigger teams pay much less per seat.
-      </p>
     </div>
   );
 }

@@ -125,7 +125,7 @@ export default function SignIn() {
     setError(null);
     try {
       const result = await api.mfaVerify({ mfa_token: mfaToken, code });
-      auth.set(result.access_token);
+      auth.set(result.access_token, result.refresh_token);
 
       if (mode === "signup" && domain) {
         try {
@@ -161,7 +161,7 @@ export default function SignIn() {
     setError(null);
     try {
       const result = await api.mfaSkip(mfaToken);
-      auth.set(result.access_token);
+      auth.set(result.access_token, result.refresh_token);
 
       if (mode === "signup" && domain) {
         try {

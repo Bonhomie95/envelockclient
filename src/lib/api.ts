@@ -185,16 +185,25 @@ export interface QualityMetric {
 }
 
 const TOKEN_KEY = "envelock.access_token";
+const REFRESH_KEY = "envelock.refresh_token";
 
 export const auth = {
   get token(): string | null {
     return localStorage.getItem(TOKEN_KEY);
   },
-  set(token: string) {
+  get refreshToken(): string | null {
+    return localStorage.getItem(REFRESH_KEY);
+  },
+  /** Store the access token, and the refresh token when the endpoint returns one
+   *  (login / MFA verify / skip / refresh). The refresh token is what keeps a
+   *  session alive past the short 15-minute access-token TTL. */
+  set(token: string, refresh?: string | null) {
     localStorage.setItem(TOKEN_KEY, token);
+    if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
   },
   clear() {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
   },
   get signedIn(): boolean {
     return Boolean(localStorage.getItem(TOKEN_KEY));
@@ -227,7 +236,42 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// A single in-flight refresh, shared by any requests that 401 at once, so a burst
+// of expired calls triggers exactly one /auth/refresh rather than a stampede.
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  const rt = auth.refreshToken;
+  if (!rt) return false;
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch("/api/v1/auth/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: rt }),
+        });
+        if (!res.ok) {
+          auth.clear(); // refresh reuse/expiry → the session is truly over
+          return false;
+        }
+        const body = (await res.json()) as {
+          access_token: string;
+          refresh_token?: string;
+        };
+        auth.set(body.access_token, body.refresh_token);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
+async function request<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init?.headers as Record<string, string>),
@@ -235,6 +279,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
 
   const res = await fetch(path, { ...init, headers });
+
+  // Access token expired mid-session → refresh once and replay the request, so a
+  // 15-minute-old tab doesn't fail with "expired". Don't loop the refresh call.
+  if (
+    res.status === 401 &&
+    !_retried &&
+    auth.refreshToken &&
+    !path.includes("/auth/refresh") &&
+    !path.includes("/auth/login")
+  ) {
+    if (await tryRefresh()) return request<T>(path, init, true);
+  }
+
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -331,17 +388,24 @@ export const api = {
     }),
 
   mfaVerify: (body: { mfa_token: string; code: string }) =>
-    request<{ access_token: string; role: string; recovery_codes?: string[] }>(
-      "/api/v1/auth/mfa/verify",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
+    request<{
+      access_token: string;
+      refresh_token?: string;
+      role: string;
+      recovery_codes?: string[];
+    }>("/api/v1/auth/mfa/verify", { method: "POST", body: JSON.stringify(body) }),
 
   // Defer MFA and start a session now. The dashboard nags until it's enabled.
   mfaSkip: (mfaToken: string) =>
-    request<{ access_token: string; role: string; mfa_deferred: boolean }>(
-      "/api/v1/auth/mfa/skip",
-      { method: "POST", body: JSON.stringify({ token: mfaToken }) },
-    ),
+    request<{
+      access_token: string;
+      refresh_token?: string;
+      role: string;
+      mfa_deferred: boolean;
+    }>("/api/v1/auth/mfa/skip", {
+      method: "POST",
+      body: JSON.stringify({ token: mfaToken }),
+    }),
 
   // Turn MFA on from inside an authenticated session (for users who skipped it).
   mfaEnroll: () =>

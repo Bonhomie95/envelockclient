@@ -15,7 +15,6 @@ import {
   Link2,
   Loader2,
   PhoneCall,
-  Play,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -32,7 +31,6 @@ import {
   type MailboxRecord,
   type Oversight,
   type QualityMetric,
-  type SimulationResult,
   type TenantInfo,
   type Tier,
 } from "../lib/api";
@@ -222,126 +220,78 @@ function AlertRow({
   );
 }
 
-function Simulation({ domain }: { domain: string }) {
-  const [result, setResult] = useState<SimulationResult | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    try {
-      setResult(await api.simulate(domain));
-    } catch {
-      setResult(null);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="panel p-5">
-      <h2 className="sect-label">Attack simulation</h2>
-      <p className="fg-3 mt-1 text-xs leading-relaxed">
-        Benign look-alike attacks, analysed but never stored as alerts
-      </p>
-      <Button
-        size="sm"
-        variant="line"
-        className="mt-4 w-full"
-        onClick={run}
-        disabled={busy}
-      >
-        {busy ? (
-          <>
-            <Loader2 size={12} className="animate-spin" aria-hidden /> RUNNING
-          </>
-        ) : (
-          <>
-            <Play size={12} aria-hidden /> RUN SIMULATION
-          </>
-        )}
-      </Button>
-
-      {result && (
-        <div className="rise mt-4 border-t pt-4">
-          <p className="mono-xs">
-            <span
-              className={result.passed === result.total ? "accent" : "fg-2"}
-            >
-              {result.passed}/{result.total} DETECTED
-            </span>
-          </p>
-          <ul className="mt-3 space-y-1.5" role="list">
-            {result.runs.map((r) => (
-              <li key={r.id} className="flex items-center gap-2 text-xs">
-                <span className={r.passed ? "accent" : "fg-3"}>
-                  {r.passed ? "✓" : "✗"}
-                </span>
-                <code className="font-mono">{r.expected}</code>
-                <span className="fg-3 ml-auto">
-                  {r.detected.length} finding
-                  {r.detected.length === 1 ? "" : "s"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* Where each provider issues the app-specific password an IMAP login needs when
-   the account has 2FA on (it usually does). Keyed by the advisor's provider id,
-   with an IMAP-host fallback so an unrecognised-but-known host still helps. This
-   is the single biggest IMAP-setup snag — "it rejected my normal password" — so
-   we answer it inline instead of leaving the user to search. */
+/* Where the common providers issue the app-specific password an IMAP login needs
+   once two-factor is on. Surfaced prominently on the dashboard, not in the form. */
 interface ImapHelp {
   label: string;
   url: string;
-  note: string;
 }
 const IMAP_HELP: Record<string, ImapHelp> = {
   google: {
     label: "Google app password",
     url: "https://myaccount.google.com/apppasswords",
-    note: "Google rejects your normal password over IMAP — create a 16-character app password.",
   },
   microsoft365: {
     label: "Microsoft app password",
     url: "https://account.microsoft.com/security",
-    note: "With security defaults on, create an app password; your admin may need to enable IMAP first.",
   },
   icloud: {
     label: "Apple app-specific password",
     url: "https://appleid.apple.com/account/manage",
-    note: "iCloud Mail requires an app-specific password for IMAP.",
   },
   fastmail: {
     label: "Fastmail app password",
     url: "https://app.fastmail.com/settings/security/apppassword",
-    note: "Create an app password scoped to IMAP.",
   },
   zoho: {
     label: "Zoho app password",
     url: "https://accounts.zoho.com/home#security/app_password",
-    note: "Generate an application-specific password for mail access.",
   },
 };
-const IMAP_HELP_BY_HOST: Record<string, string> = {
-  "imap.gmail.com": "google",
-  "outlook.office365.com": "microsoft365",
-  "imap.mail.me.com": "icloud",
-  "imap.fastmail.com": "fastmail",
-  "imap.zoho.com": "zoho",
-};
 
-function imapHelpFor(plan: ConnectionPlan | null): ImapHelp | null {
-  if (!plan) return null;
-  const byId = IMAP_HELP[plan.provider.id];
-  if (byId) return byId;
-  const host = plan.imap.host ?? "";
-  const mapped = IMAP_HELP_BY_HOST[host];
-  return mapped ? IMAP_HELP[mapped] : null;
+/* A prominent, one-time explainer surfaced on the dashboard (not buried in the
+   connect form): the single biggest IMAP snag is that providers reject the normal
+   password once two-factor is on. Links to where each issues an app password. */
+function AppPasswordNotice() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="callout p-4">
+      <div className="flex items-start gap-3">
+        <KeyRound size={16} className="mt-0.5 shrink-0" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Connecting a mailbox over IMAP?</p>
+          <p className="fg-2 mt-1 text-xs leading-relaxed">
+            Most providers reject your normal password over IMAP once two-factor is
+            on. Create an <span className="font-semibold">app-specific password</span>{" "}
+            first, then paste it when connecting.
+          </p>
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            className="accent mono-xs mt-2 cursor-pointer hover:underline"
+          >
+            {open ? "HIDE PROVIDER LINKS" : "WHERE TO GET ONE →"}
+          </button>
+          {open && (
+            <ul className="mt-2 grid gap-1.5 sm:grid-cols-2" role="list">
+              {Object.entries(IMAP_HELP).map(([id, h]) => (
+                <li key={id}>
+                  <a
+                    href={h.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="fg-2 mono-xs inline-flex items-center gap-1.5 hover:text-[var(--accent)]"
+                  >
+                    <KeyRound size={11} aria-hidden /> {h.label} →
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* Connect a mailbox using the RIGHT method for its actual mail provider — detected
@@ -367,6 +317,8 @@ function MailboxConnect({
   // IMAP form
   const [host, setHost] = useState("");
   const [port, setPort] = useState(993);
+  const [security, setSecurity] = useState<"ssl" | "starttls" | "none">("ssl");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [ingest, setIngest] = useState<string | null>(null);
@@ -417,6 +369,8 @@ function MailboxConnect({
       await api.connectImap(mailbox.id, {
         imap_host: host,
         imap_port: port,
+        security,
+        username: username.trim() || undefined,
         password,
       });
       setPassword("");
@@ -469,7 +423,6 @@ function MailboxConnect({
   const providerName = plan?.provider.name ?? null;
   const isMs = rec === "oauth_microsoft" && configured.includes("microsoft");
   const isGoogle = rec === "oauth_google" && configured.includes("google");
-  const imapHelp = imapHelpFor(plan);
 
   return (
     <div className="mt-2.5">
@@ -521,75 +474,83 @@ function MailboxConnect({
       </div>
 
       {mode === "imap" && (
-        <div className="mt-3 space-y-3 border-l-2 border-[var(--accent)] pl-3">
-          {/* Step 1 — get the right credential. This is where IMAP setups fail:
-              providers with 2FA reject the normal password over IMAP. */}
-          <div>
-            <p className="fg-2 text-xs leading-relaxed">
-              <span className="accent font-semibold">1.</span> Sign in as{" "}
-              <code className="font-mono">{address}</code> and create an{" "}
-              <span className="font-semibold">app-specific password</span> — most
-              providers reject your normal password over IMAP once two-factor is on.
-            </p>
-            {imapHelp && (
-              <a
-                href={imapHelp.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="accent mono-xs mt-1.5 inline-flex items-center gap-1.5 hover:underline"
-              >
-                <KeyRound size={11} aria-hidden /> {imapHelp.label} →
-              </a>
-            )}
-            {imapHelp && (
-              <p className="fg-3 mt-1 text-[11px] leading-relaxed">{imapHelp.note}</p>
-            )}
+        <div className="mt-3 space-y-2 border-l-2 border-[var(--accent)] pl-3">
+          <label className="fg-3 mono-xs block">IMAP SERVER &amp; PORT</label>
+          <div className="flex gap-2">
+            <input
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              placeholder="imap.yourprovider.com"
+              className="field flex-1 text-sm"
+              autoComplete="off"
+              aria-label="IMAP host"
+            />
+            <input
+              value={port}
+              onChange={(e) => setPort(Number(e.target.value) || 0)}
+              inputMode="numeric"
+              className="field w-20 text-sm"
+              aria-label="IMAP port"
+            />
           </div>
 
-          {/* Step 2 — server + credential. Host/port are prefilled from the
-              detected provider; the user usually only pastes the password. */}
-          <div className="space-y-2">
-            <p className="fg-2 text-xs">
-              <span className="accent font-semibold">2.</span> Paste it below. The
-              server details are prefilled{plan?.detected ? " from your provider" : ""}.
-            </p>
-            <label className="fg-3 mono-xs block">IMAP SERVER</label>
-            <div className="flex gap-2">
-              <input
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                placeholder="imap.yourprovider.com"
-                className="field flex-1 text-sm"
-                autoComplete="off"
-                aria-label="IMAP host"
-              />
-              <input
-                value={port}
-                onChange={(e) => setPort(Number(e.target.value) || 993)}
-                inputMode="numeric"
-                className="field w-20 text-sm"
-                aria-label="IMAP port"
-              />
-            </div>
-            <label className="fg-3 mono-xs block">APP PASSWORD</label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="paste the app password"
-                className="field w-full pr-16 text-sm"
-                autoComplete="off"
-              />
+          <label className="fg-3 mono-xs block">SECURITY</label>
+          <div className="flex gap-px" role="group" aria-label="Transport security">
+            {(
+              [
+                ["ssl", "SSL/TLS", 993],
+                ["starttls", "STARTTLS", 143],
+                ["none", "NONE", 143],
+              ] as const
+            ).map(([val, label, defPort]) => (
               <button
+                key={val}
                 type="button"
-                onClick={() => setShowPassword((s) => !s)}
-                className="fg-3 mono-xs absolute inset-y-0 right-2 my-auto h-5 cursor-pointer hover:text-[var(--fg)]"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => {
+                  setSecurity(val);
+                  setPort(defPort); // sensible default; still editable
+                }}
+                aria-pressed={security === val}
+                className={cn(
+                  "font-mono flex-1 cursor-pointer border px-2 py-1.5 text-[11px] tracking-wide transition-colors",
+                  security === val
+                    ? "accent border-[var(--accent)]"
+                    : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
+                )}
               >
-                {showPassword ? "HIDE" : "SHOW"}
+                {label}
               </button>
-            </div>
+            ))}
+          </div>
+
+          <label className="fg-3 mono-xs block">USERNAME</label>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder={address}
+            className="field text-sm"
+            autoComplete="off"
+            aria-label="IMAP username"
+          />
+
+          <label className="fg-3 mono-xs block">PASSWORD</label>
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="mailbox or app password"
+              className="field w-full pr-16 text-sm"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="fg-3 mono-xs absolute inset-y-0 right-2 my-auto h-5 cursor-pointer hover:text-[var(--fg)]"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? "HIDE" : "SHOW"}
+            </button>
           </div>
 
           <Button
@@ -603,11 +564,6 @@ function MailboxConnect({
             ) : null}{" "}
             CONNECT MAILBOX
           </Button>
-          <p className="fg-3 text-[11px] leading-relaxed">
-            Stored encrypted with a key we can't read in bulk, decrypted only inside
-            the connection service. We never display it again. Connecting enables
-            full content + fraud detection and lets us quarantine dangerous mail.
-          </p>
         </div>
       )}
 
@@ -1721,8 +1677,7 @@ export default function Dashboard() {
                     a lookalike domain, or an account takeover in a connected
                     mailbox, it appears here with the action to take — verify,
                     quarantine or dismiss. An empty queue means nothing needs
-                    you right now; quiet is the correct state. Run a simulation
-                    below to see detection working end to end.
+                    you right now; quiet is the correct state.
                   </p>
                 </div>
               ) : (
@@ -1760,6 +1715,8 @@ export default function Dashboard() {
           {tenant && <UpgradePlans tenant={tenant} onChanged={load} />}
 
           <ConnectionAdvisor defaultDomain={hasDomain ? domain : ""} />
+
+          <AppPasswordNotice />
 
           <div className="panel" id="coverage">
             <div className="border-b px-5 py-3.5">
@@ -1859,8 +1816,6 @@ export default function Dashboard() {
             )}
             <AddMailbox onAdded={load} mailboxes={tenant?.mailboxes} />
           </div>
-
-          <Simulation domain={hasDomain ? domain : "example.com"} />
 
           <GoverningMetrics />
 

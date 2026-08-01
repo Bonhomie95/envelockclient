@@ -578,7 +578,13 @@ export const api = {
 
   connectImap: (
     mailboxId: string,
-    body: { imap_host: string; imap_port: number; password: string },
+    body: {
+      imap_host: string;
+      imap_port: number;
+      password: string;
+      security?: "ssl" | "starttls" | "none";
+      username?: string;
+    },
   ) =>
     request<MailboxRecord>(`/api/v1/mailboxes/${mailboxId}/connect/imap`, {
       method: "POST",

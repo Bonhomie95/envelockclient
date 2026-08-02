@@ -324,6 +324,9 @@ function MailboxConnect({
   const [ingest, setIngest] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     let live = true;
@@ -358,6 +361,37 @@ function MailboxConnect({
     }
   }
 
+  const imapBody = () => ({
+    imap_host: host,
+    imap_port: port,
+    security,
+    username: username.trim() || undefined,
+    password,
+  });
+
+  // Verify the settings without saving — lets the user get the config right
+  // before committing the mailbox.
+  async function testImap() {
+    if (!host || !password) {
+      setNote("Enter the IMAP host and the password first.");
+      return;
+    }
+    setBusy("test");
+    setNote(null);
+    setTestResult(null);
+    try {
+      const r = await api.testImap(mailbox.id, imapBody());
+      setTestResult({ ok: r.ok, msg: r.ok ? "Connected — settings work." : r.reason });
+    } catch (e) {
+      setTestResult({
+        ok: false,
+        msg: e instanceof ApiError ? e.message : "Test failed.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function submitImap() {
     if (!host || !password) {
       setNote("Enter the IMAP host and the mailbox password.");
@@ -366,13 +400,7 @@ function MailboxConnect({
     setBusy("imap");
     setNote(null);
     try {
-      await api.connectImap(mailbox.id, {
-        imap_host: host,
-        imap_port: port,
-        security,
-        username: username.trim() || undefined,
-        password,
-      });
+      await api.connectImap(mailbox.id, imapBody());
       setPassword("");
       setMode(null);
       await onConnected();
@@ -553,17 +581,47 @@ function MailboxConnect({
             </button>
           </div>
 
-          <Button
-            size="sm"
-            variant="accent"
-            disabled={busy !== null}
-            onClick={submitImap}
-          >
-            {busy === "imap" ? (
-              <Loader2 size={12} className="animate-spin" aria-hidden />
-            ) : null}{" "}
-            CONNECT MAILBOX
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="line"
+              disabled={busy !== null}
+              onClick={testImap}
+            >
+              {busy === "test" ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : null}{" "}
+              TEST CONNECTION
+            </Button>
+            <Button
+              size="sm"
+              variant="accent"
+              disabled={busy !== null}
+              onClick={submitImap}
+            >
+              {busy === "imap" ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : null}{" "}
+              CONNECT MAILBOX
+            </Button>
+          </div>
+
+          {testResult && (
+            <p
+              className={cn(
+                "flex items-start gap-1.5 text-xs leading-relaxed",
+                testResult.ok ? "text-[var(--ok)]" : "text-[var(--danger)]",
+              )}
+              role="status"
+            >
+              {testResult.ok ? (
+                <Check size={13} className="mt-0.5 shrink-0" aria-hidden />
+              ) : (
+                <X size={13} className="mt-0.5 shrink-0" aria-hidden />
+              )}
+              {testResult.msg}
+            </p>
+          )}
         </div>
       )}
 

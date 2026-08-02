@@ -591,6 +591,22 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  // Verify IMAP settings without storing anything (the form's "Test" button).
+  testImap: (
+    mailboxId: string,
+    body: {
+      imap_host: string;
+      imap_port: number;
+      password: string;
+      security?: "ssl" | "starttls" | "none";
+      username?: string;
+    },
+  ) =>
+    request<{ ok: boolean; reason: string }>(
+      `/api/v1/mailboxes/${mailboxId}/connect/imap/test`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
   // Mark a mailbox as connected by forwarding (alert-only — Limited coverage).
   connectForward: (mailboxId: string) =>
     request<MailboxRecord>(`/api/v1/mailboxes/${mailboxId}/connect/forward`, {

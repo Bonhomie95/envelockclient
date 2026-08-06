@@ -117,14 +117,40 @@ export interface AlertRecord {
   acknowledged_at: string | null;
 }
 
+export interface ProtectionGap {
+  capability: string;
+  unlocks: string;
+  how: string;
+  provided_by: string[];
+}
+
+export interface ProtectionAdvice {
+  level: "full" | "standard" | "limited";
+  is_max: boolean;
+  next_level: "full" | "standard" | null;
+  missing: ProtectionGap[];
+}
+
 export interface MailboxRecord {
   id: string;
   address: string;
   mailbox_class: string;
   sources: string[];
   protection_level: "full" | "standard" | "limited";
+  protection?: ProtectionAdvice;
   inactive_detections: string[];
   is_shared: boolean;
+  last_sync_at?: string | null;
+  needs_reconnect?: boolean;
+  connection_error?: string | null;
+}
+
+export interface SyncResult {
+  ok: boolean;
+  fetched: number;
+  alerted: number;
+  quarantined: number;
+  alerts?: { uid: number; alert_id: string; tier: string | null; title: string | null }[];
 }
 
 export interface Oversight {
@@ -589,6 +615,13 @@ export const api = {
     request<MailboxRecord>(`/api/v1/mailboxes/${mailboxId}/connect/imap`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  // Poll a connected IMAP mailbox immediately — the "Sync now" button. Fetches
+  // any new mail through the full detection pipeline and reports what it found.
+  syncMailbox: (mailboxId: string) =>
+    request<SyncResult>(`/api/v1/mailboxes/${mailboxId}/sync`, {
+      method: "POST",
     }),
 
   // Verify IMAP settings without storing anything (the form's "Test" button).

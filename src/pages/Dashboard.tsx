@@ -294,6 +294,132 @@ function AppPasswordNotice() {
   );
 }
 
+/* One mailbox in the list. Owns the per-row interactive state — "Sync now",
+   the reconnect prompt when a stored credential has gone bad, and the plain
+   explainer of why the protection level is what it is and how to raise it. */
+const IMAP_SOURCES = new Set(["imap_idle", "imap_poll"]);
+
+function MailboxRow({
+  mailbox: m,
+  onChanged,
+  onRemove,
+}: {
+  mailbox: MailboxRecord;
+  onChanged: () => Promise<void>;
+  onRemove: (id: string) => void | Promise<void>;
+}) {
+  const connected = m.sources.some((s) => MAIL_SOURCES.has(s));
+  const isImap = m.sources.some((s) => IMAP_SOURCES.has(s));
+  const [syncing, setSyncing] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function sync() {
+    setSyncing(true);
+    setNote(null);
+    try {
+      const r = await api.syncMailbox(m.id);
+      setNote(
+        r.fetched === 0
+          ? "Synced — no new mail."
+          : `Synced ${r.fetched} message${r.fetched === 1 ? "" : "s"}` +
+              (r.alerted ? `, ${r.alerted} flagged` : "") +
+              (r.quarantined ? `, ${r.quarantined} quarantined` : "") +
+              ".",
+      );
+      await onChanged();
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not sync this mailbox.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <li className="px-5 py-3.5">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{m.address}</p>
+          <p className="fg-3 mono-xs mt-0.5">
+            {connected
+              ? m.sources.filter((s) => MAIL_SOURCES.has(s))[0].toUpperCase()
+              : "UNCONNECTED"}{" "}
+            · {m.mailbox_class.toUpperCase()}
+            {m.last_sync_at && ` · SYNCED ${timeOf(m.last_sync_at)}`}
+          </p>
+        </div>
+        {isImap && !m.needs_reconnect && (
+          <button
+            onClick={() => void sync()}
+            disabled={syncing}
+            title="Fetch new mail now"
+            className="fg-2 inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--line)] px-2 py-1 text-xs font-semibold transition-colors hover:text-[var(--fg)] disabled:opacity-50"
+          >
+            {syncing ? (
+              <Loader2 size={12} className="animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw size={12} aria-hidden />
+            )}
+            Sync
+          </button>
+        )}
+        <LevelChip level={m.protection_level} />
+        <button
+          onClick={() => void onRemove(m.id)}
+          aria-label={`Remove ${m.address}`}
+          title="Remove mailbox"
+          className="fg-3 cursor-pointer p-1 transition-colors hover:text-[var(--danger)]"
+        >
+          <Trash2 size={14} aria-hidden />
+        </button>
+      </div>
+
+      {m.needs_reconnect && (
+        <div className="mt-2 flex items-start gap-2 rounded border border-[var(--danger)] bg-[var(--danger)]/10 px-3 py-2">
+          <ShieldAlert size={14} className="mt-0.5 text-[var(--danger)]" aria-hidden />
+          <p className="text-xs">
+            <span className="font-semibold">Reconnect needed.</span>{" "}
+            {m.connection_error ??
+              "This mailbox can no longer be read — its stored password is invalid."}{" "}
+            It looks connected but is not being protected until you reconnect it below.
+          </p>
+        </div>
+      )}
+
+      {note && <p className="fg-2 mono-xs mt-2">{note}</p>}
+
+      {/* Why this level, and exactly how to raise it — so "Standard" is never a
+          bare word. Distinct from the billing plan (shown in the header). */}
+      {connected && m.protection && !m.protection.is_max && m.protection.missing.length > 0 && (
+        <details className="mt-2 rounded border border-[var(--line)] px-3 py-2">
+          <summary className="fg-2 cursor-pointer text-xs font-semibold">
+            {m.protection_level.toUpperCase()} protection — reach{" "}
+            {m.protection.next_level?.toUpperCase()} →
+          </summary>
+          <ul className="mt-2 space-y-1.5" role="list">
+            {m.protection.missing.map((g) => (
+              <li key={g.capability} className="fg-3 text-xs">
+                <span className="fg-2">{g.unlocks}</span> — {g.how}.
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {m.inactive_detections.length > 0 && (
+        <p className="fg-3 mono-xs mt-2">
+          INACTIVE: {m.inactive_detections.slice(0, 6).join(" ")}
+          {m.inactive_detections.length > 6 && " …"}
+        </p>
+      )}
+
+      {(!connected || m.needs_reconnect) && (
+        <MailboxConnect mailbox={m} onConnected={onChanged} />
+      )}
+      {connected && !m.needs_reconnect && <MailboxActivity mailboxId={m.id} />}
+    </li>
+  );
+}
+
 /* Connect a mailbox using the RIGHT method for its actual mail provider — detected
    from the domain's MX records, not from whichever OAuth apps this deployment
    happens to have configured. A Google/Microsoft domain gets one-click OAuth; any
@@ -1826,50 +1952,14 @@ export default function Dashboard() {
                           .includes(mailboxQuery.toLowerCase())
                       : true,
                   )
-                  .map((m) => {
-                    const connected = m.sources.some((s) =>
-                      MAIL_SOURCES.has(s),
-                    );
-                    return (
-                      <li key={m.id} className="px-5 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">
-                              {m.address}
-                            </p>
-                            <p className="fg-3 mono-xs mt-0.5">
-                              {connected
-                                ? m.sources
-                                    .filter((s) => MAIL_SOURCES.has(s))[0]
-                                    .toUpperCase()
-                                : "UNCONNECTED"}{" "}
-                              · {m.mailbox_class.toUpperCase()}
-                            </p>
-                          </div>
-                          <LevelChip level={m.protection_level} />
-                          <button
-                            onClick={() => void removeMailbox(m.id)}
-                            aria-label={`Remove ${m.address}`}
-                            title="Remove mailbox"
-                            className="fg-3 cursor-pointer p-1 transition-colors hover:text-[var(--danger)]"
-                          >
-                            <Trash2 size={14} aria-hidden />
-                          </button>
-                        </div>
-                        {m.inactive_detections.length > 0 && (
-                          <p className="fg-3 mono-xs mt-2">
-                            INACTIVE:{" "}
-                            {m.inactive_detections.slice(0, 6).join(" ")}
-                            {m.inactive_detections.length > 6 && " …"}
-                          </p>
-                        )}
-                        {!connected && (
-                          <MailboxConnect mailbox={m} onConnected={load} />
-                        )}
-                        {connected && <MailboxActivity mailboxId={m.id} />}
-                      </li>
-                    );
-                  })}
+                  .map((m) => (
+                    <MailboxRow
+                      key={m.id}
+                      mailbox={m}
+                      onChanged={load}
+                      onRemove={removeMailbox}
+                    />
+                  ))}
               </ul>
             )}
             <AddMailbox onAdded={load} mailboxes={tenant?.mailboxes} />

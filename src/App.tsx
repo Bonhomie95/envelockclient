@@ -25,6 +25,7 @@ import Dashboard from "./pages/Dashboard";
 import Analyse from "./pages/Analyse";
 import Docs from "./pages/Docs";
 import SignIn from "./pages/SignIn";
+import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
 import Team from "./pages/Team";
 import Billing from "./pages/Billing";
@@ -536,6 +537,7 @@ export default function App() {
           <Route path="/analyse" element={<Analyse />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/signin" element={<SignIn />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Route>
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />

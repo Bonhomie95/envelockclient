@@ -354,6 +354,17 @@ export default function SignIn() {
                   </>
                 )}
               </Button>
+
+              {mode === "signin" && (
+                <p className="text-right">
+                  <Link
+                    to="/reset-password"
+                    className="fg-3 text-xs font-medium underline underline-offset-4 hover:text-[var(--fg)]"
+                  >
+                    Forgot password?
+                  </Link>
+                </p>
+              )}
             </form>
 
             <p className="fg-2 mt-8 text-sm">

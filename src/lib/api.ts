@@ -249,6 +249,22 @@ export const auth = {
   },
 };
 
+// Where the backend actually lives. In production the client is served from a
+// different origin (Vercel) than the API (Render), so a relative "/api/..." URL
+// would call the static host itself (that is the 500 you saw). Target the API's
+// absolute origin instead. Override at build time with VITE_API_BASE_URL; falls
+// back to the Render backend in a production build, and to same-origin (the Vite
+// dev proxy) in development.
+export const API_BASE = (
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+  (import.meta.env.PROD ? "https://envelockserver.onrender.com" : "")
+).replace(/\/+$/, "");
+
+/** Prefix an "/api/..." path with the backend origin. */
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -272,7 +288,7 @@ async function tryRefresh(): Promise<boolean> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
-        const res = await fetch("/api/v1/auth/refresh", {
+        const res = await fetch(apiUrl("/api/v1/auth/refresh"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token: rt }),
@@ -304,7 +320,7 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
   };
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
 
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(apiUrl(path), { ...init, headers });
 
   // Access token expired mid-session → refresh once and replay the request, so a
   // 15-minute-old tab doesn't fail with "expired". Don't loop the refresh call.
@@ -406,6 +422,27 @@ export const api = {
       "/api/v1/auth/login",
       { method: "POST", body: JSON.stringify(body) },
     ),
+
+  // Begin a password reset. An MFA account gets back method:"mfa" + a reset token
+  // (used with the authenticator code); a non-MFA account gets method:"email".
+  forgotPassword: (email: string) =>
+    request<{
+      method: "mfa" | "email";
+      message: string;
+      reset_token?: string;
+      reset_link?: string;
+    }>("/api/v1/auth/password/forgot", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  // Complete a reset. `code` is required for MFA accounts, omitted for the
+  // emailed-link (non-MFA) path.
+  resetPassword: (body: { token: string; new_password: string; code?: string }) =>
+    request<{ ok: boolean; message: string }>("/api/v1/auth/password/reset", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   mfaSetup: (mfaToken: string) =>
     request<{ secret: string; otpauth_uri: string }>("/api/v1/auth/mfa/setup", {

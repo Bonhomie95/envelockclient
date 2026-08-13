@@ -48,6 +48,7 @@ const MAIL_SOURCES = new Set([
 ]);
 import { Button, LevelChip, TierChip, cn } from "../components/primitives";
 import ConnectionAdvisor from "../components/ConnectionAdvisor";
+import { DomainVerify } from "../components/DomainVerify";
 import MfaEnroll from "../components/MfaEnroll";
 import { PLAN_RANK, PLAN_TIERS } from "../lib/plans";
 
@@ -1777,6 +1778,16 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Domain-control verification (PRD signup funnel). Prompt until the tenant's
+          primary domain is DNS-verified; mailboxes can't be connected before then. */}
+      {tenant?.primary_domain &&
+        !(tenant.domains.find((d) => d.registrable_domain === tenant.primary_domain)
+          ?.verified) && (
+          <div className="shell pt-4">
+            <DomainVerify domain={tenant.primary_domain} onVerified={() => void load()} />
+          </div>
+        )}
 
       {error && error !== "signed-out" && (
         <div className="shell py-4">

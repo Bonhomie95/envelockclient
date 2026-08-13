@@ -584,6 +584,41 @@ export const api = {
 
   tenant: () => request<TenantInfo>("/api/v1/tenant"),
 
+  // Domain-control verification (PRD signup funnel). Show the DNS record, then
+  // verify once the customer has added it. Until a domain is verified, a mailbox
+  // on it cannot be connected for live mail.
+  domainVerification: (domain: string) =>
+    request<{
+      domain: string;
+      verified: boolean;
+      txt: { host: string; type: string; value: string };
+      cname: { host: string; type: string; value: string };
+    }>(`/api/v1/domains/${encodeURIComponent(domain)}/verification`),
+
+  verifyDomain: (domain: string) =>
+    request<{ domain: string; verified: boolean }>(
+      `/api/v1/domains/${encodeURIComponent(domain)}/verify`,
+      { method: "POST" },
+    ),
+
+  // L1 Web Push registration (PRD §8.1). Register the browser so Critical alerts
+  // reach the user even when the app tab is closed.
+  pushSubscribe: (body: { endpoint: string; p256dh: string; auth: string }) =>
+    request<{ subscribed: boolean }>("/api/v1/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  pushUnsubscribe: (body: { endpoint: string; p256dh: string; auth: string }) =>
+    request<{ subscribed: boolean }>("/api/v1/push/unsubscribe", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // E10 — per-counterparty risk profiles.
+  counterparties: () =>
+    request<{ counterparties: unknown[] }>("/api/v1/counterparties"),
+
   // Change the subscribed plan (owner only). Moving to a paid tier needs an
   // active trial or a card on file; the server returns 402 otherwise.
   changePlan: (plan: string) =>

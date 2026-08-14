@@ -18,6 +18,7 @@ import {
   Plus,
   RefreshCw,
   ShieldAlert,
+  ShieldCheck,
   Trash2,
   X,
   type LucideIcon,
@@ -1305,13 +1306,11 @@ function MailboxActivity({ mailboxId }: { mailboxId: string }) {
    by real tenant state. It disappears once every step is done, so it never nags a
    set-up account. Each open step carries the one action that completes it. */
 function OnboardingChecklist({
-  mailboxes,
   connectedCount,
   mfaEnabled,
   paymentOk,
   onSetupMfa,
 }: {
-  mailboxes: number;
   connectedCount: number;
   mfaEnabled: boolean;
   paymentOk: boolean;
@@ -1319,24 +1318,13 @@ function OnboardingChecklist({
 }) {
   const steps = [
     {
-      key: "add",
-      done: mailboxes > 0,
-      label: "Add the mailboxes that touch money",
-      hint: "Finance, executives, accounts payable — the ones fraud targets.",
-      action: (
-        <a href="#coverage" className="accent mono-xs hover:underline">
-          ADD MAILBOXES →
-        </a>
-      ),
-    },
-    {
       key: "connect",
       done: connectedCount > 0,
-      label: "Connect a mailbox for full protection",
-      hint: "One click on Microsoft/Google, or IMAP / forwarding for anything else.",
+      label: "Secure your most important mailboxes first",
+      hint: "Finance, executives, accounts payable — the ones fraud targets. Connect in one click with Microsoft or Google, or IMAP / forwarding for anything else.",
       action: (
         <a href="#coverage" className="accent mono-xs hover:underline">
-          CONNECT →
+          ADD MAILBOX →
         </a>
       ),
     },
@@ -1676,6 +1664,56 @@ export default function Dashboard() {
     );
   }
 
+  // Hold the whole page on first load until we know the tenant's verification
+  // state — otherwise an unverified user glimpses the dashboard shell for one
+  // render before the gate below replaces it.
+  if (loading && !tenant) {
+    return (
+      <main className="shell grid min-h-[60vh] place-items-center py-24">
+        <Loader2 size={22} className="fg-3 animate-spin" aria-hidden />
+      </main>
+    );
+  }
+
+  // Domain-control gate (PRD signup funnel). A business tenant must prove it
+  // controls its domain BEFORE it reaches any live data — this is what stops
+  // someone signing up with a company address they don't own, and it is why the
+  // verify step comes right after 2FA. Until the primary domain is DNS-verified
+  // we render ONLY the verification screen, never the dashboard, so a mailbox
+  // can't be added first either. A tenant with no primary domain (edge case)
+  // falls through rather than being locked out.
+  const primaryUnverified =
+    !!tenant?.primary_domain &&
+    !tenant.domains.find((d) => d.registrable_domain === tenant.primary_domain)
+      ?.verified;
+
+  if (tenant && primaryUnverified) {
+    return (
+      <main className="shell py-16">
+        <div className="mx-auto max-w-lg">
+          <div className="mb-6 text-center">
+            <ShieldCheck size={28} className="fg-3 mx-auto" aria-hidden />
+            <h1 className="headline mt-5">Verify your domain to continue</h1>
+            <p className="lede mx-auto mt-3 text-base">
+              One last step. Prove you control{" "}
+              <span className="font-semibold">{tenant.primary_domain}</span> and
+              your dashboard opens automatically. This is what keeps everyone else
+              out of your company's mail.
+            </p>
+          </div>
+          <DomainVerify
+            domain={tenant.primary_domain!}
+            onVerified={() => void load()}
+            onBack={() => {
+              auth.clear();
+              setError("signed-out");
+            }}
+          />
+        </div>
+      </main>
+    );
+  }
+
   // The tenant's own registered domain — falls back to a connected mailbox's
   // domain only if the tenant record somehow has none.
   const resolvedDomain =
@@ -1779,15 +1817,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Domain-control verification (PRD signup funnel). Prompt until the tenant's
-          primary domain is DNS-verified; mailboxes can't be connected before then. */}
-      {tenant?.primary_domain &&
-        !(tenant.domains.find((d) => d.registrable_domain === tenant.primary_domain)
-          ?.verified) && (
-          <div className="shell pt-4">
-            <DomainVerify domain={tenant.primary_domain} onVerified={() => void load()} />
-          </div>
-        )}
+      {/* Domain verification is handled by a full-screen gate above (the dashboard
+          only renders once the primary domain is DNS-verified), so there is no
+          inline verify banner here. */}
 
       {error && error !== "signed-out" && (
         <div className="shell py-4">
@@ -1893,7 +1925,6 @@ export default function Dashboard() {
         <aside className="col-span-12 mt-6 space-y-6 lg:col-span-4 lg:mt-0">
           {tenant && me && (
             <OnboardingChecklist
-              mailboxes={mailboxes.length}
               connectedCount={
                 mailboxes.filter((m) => m.sources.some((s) => MAIL_SOURCES.has(s)))
                   .length

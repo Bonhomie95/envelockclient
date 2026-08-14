@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import { Button } from "./primitives";
@@ -8,13 +8,20 @@ import { Button } from "./primitives";
  * customer must add and a "Verify" button. Until the domain is verified, no
  * mailbox on it can be connected for live mail — this is what stops someone
  * signing up with a company address they don't control.
+ *
+ * It also polls in the background every 10s, so the moment the customer saves
+ * the record at their registrar we catch it and advance — no need to sit and
+ * click Verify. `onBack` (when provided) renders an escape hatch, used by the
+ * onboarding gate to let a user step back out to sign-in.
  */
 export function DomainVerify({
   domain,
   onVerified,
+  onBack,
 }: {
   domain: string;
   onVerified?: () => void;
+  onBack?: () => void;
 }) {
   const [record, setRecord] = useState<{
     txt: { host: string; type: string; value: string };
@@ -24,39 +31,70 @@ export function DomainVerify({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [method, setMethod] = useState<"txt" | "cname">("txt");
+  // Guards the background poll from racing a manual verify or firing after we've
+  // already succeeded.
+  const verifiedRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
       const r = await api.domainVerification(domain);
       setRecord(r);
+      if (r.verified) verifiedRef.current = true;
     } catch {
       /* domain may not be bootstrapped yet */
     }
   }, [domain]);
 
   useEffect(() => {
+    // Fetch-on-mount: load() sets state after its first await, the intended
+    // pattern here, not the cascading-render case the rule targets.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
-  const verify = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api.verifyDomain(domain);
-      if (r.verified) {
-        setRecord((prev) => (prev ? { ...prev, verified: true } : prev));
-        onVerified?.();
+  // `silent` is the background poll: it never shows a spinner or an error, it
+  // just advances if the record has propagated. The manual Verify press is loud.
+  const verify = useCallback(
+    async (silent: boolean) => {
+      if (verifiedRef.current) return;
+      if (!silent) {
+        setBusy(true);
+        setError(null);
       }
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "DNS record not found yet — it can take a few minutes to propagate.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }, [domain, onVerified]);
+      try {
+        const r = await api.verifyDomain(domain);
+        if (r.verified) {
+          verifiedRef.current = true;
+          setRecord((prev) => (prev ? { ...prev, verified: true } : prev));
+          onVerified?.();
+        } else if (!silent) {
+          setError(
+            "DNS record not found yet — it can take a few minutes to propagate. " +
+              "We'll keep checking automatically.",
+          );
+        }
+      } catch (e) {
+        if (!silent)
+          setError(
+            e instanceof Error
+              ? e.message
+              : "DNS record not found yet — it can take a few minutes to propagate.",
+          );
+      } finally {
+        if (!silent) setBusy(false);
+      }
+    },
+    [domain, onVerified],
+  );
+
+  // Auto-check every 10s while the record is loaded and still unverified. Stops
+  // as soon as it verifies (the interval is torn down when `record.verified`
+  // flips) or the component unmounts.
+  useEffect(() => {
+    if (!record || record.verified) return;
+    const id = setInterval(() => void verify(true), 10_000);
+    return () => clearInterval(id);
+  }, [record, verify]);
 
   if (!record) return null;
   if (record.verified) {
@@ -76,9 +114,10 @@ export function DomainVerify({
         Verify control of {domain}
       </p>
       <p className="mt-1 opacity-80">
-        Add this DNS record at your registrar, then click Verify. Until you do, we
-        won't connect any mailbox on this domain — this stops anyone using an address
-        they don't actually own.
+        Add this DNS record at your registrar. We check automatically every few
+        seconds and continue the moment it's found — until then, we won't connect
+        any mailbox on this domain, which stops anyone using an address they don't
+        actually own.
       </p>
 
       <div className="mt-3 flex gap-2 text-xs">
@@ -111,13 +150,18 @@ export function DomainVerify({
 
       {error && <p className="mt-2 text-red-500">{error}</p>}
 
-      <div className="mt-3 flex gap-2">
-        <Button onClick={verify} disabled={busy}>
+      <div className="mt-3 flex items-center gap-2">
+        <Button onClick={() => void verify(false)} disabled={busy}>
           {busy ? "Checking DNS…" : "Verify"}
         </Button>
-        <Button variant="quiet" onClick={() => void load()} disabled={busy}>
-          Refresh
-        </Button>
+        {onBack && (
+          <Button variant="quiet" onClick={onBack} disabled={busy}>
+            Back
+          </Button>
+        )}
+        <span className="ml-auto text-xs opacity-60" aria-live="polite">
+          Checking automatically…
+        </span>
       </div>
     </div>
   );

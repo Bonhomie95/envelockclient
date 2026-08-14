@@ -238,8 +238,9 @@ export default function SignIn() {
                     className="field mt-2"
                   />
                   <p className="fg-3 mt-2 text-xs">
-                    We verify ownership with a DNS record. That same step turns on
-                    your spoof reports.
+                    Right after sign-in you'll add one DNS record to prove you own
+                    this domain — it's the first step and unlocks your dashboard.
+                    It switches on your spoof reports too. No mailbox access involved.
                   </p>
                 </div>
               )}
@@ -626,12 +627,12 @@ export default function SignIn() {
           <ol className="mt-8 divide-y" role="list">
             {[
               [
-                "Verify your domain",
-                "A DNS record proves ownership and switches on spoof reporting. No mailbox access involved.",
+                "Verify your domain first",
+                "Right after two-factor, add one DNS record to prove ownership. It unlocks your dashboard and switches on spoof reporting — no mailbox access involved. We check automatically and continue the moment it's found.",
               ],
               [
                 "See your exposure",
-                "Lookalike domains already registered against you, ranked by whether they can send mail.",
+                "Once verified, your dashboard opens: lookalike domains already registered against you, ranked by whether they can send mail.",
               ],
               [
                 "Connect a mailbox",

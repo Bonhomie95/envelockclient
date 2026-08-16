@@ -1,4 +1,4 @@
-import { createElement, useCallback, useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -909,6 +909,222 @@ function ClassPicker({
   );
 }
 
+/* Connect many IMAP mailboxes in one pass. The IMAP *server* settings (host, port,
+   security) are the same for every mailbox on a domain, so they're entered once at
+   the top and auto-detected from the provider; only the per-mailbox app-password —
+   which genuinely differs per account — is typed per row. This is the "don't retype
+   the server config for all 50 boxes" path; one-off connects still use MailboxRow. */
+function BulkImapConnect({
+  mailboxes,
+  domain,
+  onDone,
+}: {
+  mailboxes: MailboxRecord[];
+  domain: string | null;
+  onDone: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState(993);
+  const [security, setSecurity] = useState<"ssl" | "starttls" | "none">("ssl");
+  const [showPw, setShowPw] = useState(false);
+  const [pw, setPw] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Record<string, { ok: boolean; msg: string }>>(
+    {},
+  );
+  const [note, setNote] = useState<string | null>(null);
+
+  // Auto-detect the domain's IMAP server so the shared settings are prefilled.
+  useEffect(() => {
+    if (!domain || !open) return;
+    let live = true;
+    api
+      .connect(domain)
+      .then((p) => {
+        if (!live) return;
+        if (p.imap.host) setHost(p.imap.host);
+        if (p.imap.port) setPort(p.imap.port);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [domain, open]);
+
+  const withPw = mailboxes.filter((m) => (pw[m.id] ?? "").trim().length > 0);
+
+  async function connectAll() {
+    if (!host) {
+      setNote("Enter the IMAP server first.");
+      return;
+    }
+    if (withPw.length === 0) {
+      setNote("Enter the app-password for at least one mailbox.");
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    const next: Record<string, { ok: boolean; msg: string }> = {};
+    for (const m of withPw) {
+      try {
+        await api.connectImap(m.id, {
+          imap_host: host,
+          imap_port: port,
+          security,
+          username: m.address,
+          password: pw[m.id].trim(),
+        });
+        next[m.id] = { ok: true, msg: "connected" };
+      } catch (e) {
+        next[m.id] = {
+          ok: false,
+          msg: e instanceof ApiError ? e.message : "connection failed",
+        };
+      }
+    }
+    setResults(next);
+    setBusy(false);
+    await onDone();
+  }
+
+  if (mailboxes.length < 2) return null; // one-off connects use the per-row form
+
+  if (!open) {
+    return (
+      <div className="border-t p-4">
+        <Button
+          size="sm"
+          variant="line"
+          className="w-full"
+          onClick={() => setOpen(true)}
+        >
+          <KeyRound size={13} aria-hidden /> CONNECT {mailboxes.length} OVER IMAP AT
+          ONCE
+        </Button>
+        <p className="fg-3 mt-2 text-xs leading-relaxed">
+          Set the IMAP server once for the whole domain; enter each mailbox's own
+          app-password. No re-typing host and port per mailbox.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t p-4">
+      <div className="space-y-2 border-l-2 border-[var(--accent)] pl-3">
+        <label className="fg-3 mono-xs block">IMAP SERVER &amp; PORT (all mailboxes)</label>
+        <div className="flex gap-2">
+          <input
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            placeholder="imap.yourprovider.com"
+            className="field flex-1 text-sm"
+            autoComplete="off"
+            aria-label="IMAP host"
+          />
+          <input
+            value={port}
+            onChange={(e) => setPort(Number(e.target.value) || 0)}
+            inputMode="numeric"
+            className="field w-20 text-sm"
+            aria-label="IMAP port"
+          />
+        </div>
+        <div className="flex gap-px" role="group" aria-label="Transport security">
+          {(
+            [
+              ["ssl", "SSL/TLS", 993],
+              ["starttls", "STARTTLS", 143],
+              ["none", "NONE", 143],
+            ] as const
+          ).map(([val, label, defPort]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => {
+                setSecurity(val);
+                setPort(defPort);
+              }}
+              aria-pressed={security === val}
+              className={cn(
+                "font-mono flex-1 cursor-pointer border px-2 py-1.5 text-[11px] tracking-wide transition-colors",
+                security === val
+                  ? "accent border-[var(--accent)]"
+                  : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between">
+        <label className="fg-3 mono-xs block">APP-PASSWORD PER MAILBOX</label>
+        <button
+          type="button"
+          onClick={() => setShowPw((s) => !s)}
+          className="fg-3 mono-xs cursor-pointer hover:text-[var(--fg)]"
+        >
+          {showPw ? "HIDE" : "SHOW"}
+        </button>
+      </div>
+      <p className="fg-3 mt-1 text-xs leading-relaxed">
+        Most providers need an app-specific password (not the normal one) once
+        two-factor is on. Leave a box blank to skip it for now.
+      </p>
+      <ul className="mt-2 space-y-1.5" role="list">
+        {mailboxes.map((m) => {
+          const r = results[m.id];
+          return (
+            <li key={m.id} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm" title={m.address}>
+                {m.address}
+              </span>
+              <input
+                type={showPw ? "text" : "password"}
+                value={pw[m.id] ?? ""}
+                onChange={(e) =>
+                  setPw((prev) => ({ ...prev, [m.id]: e.target.value }))
+                }
+                placeholder="app-password"
+                className="field h-8 w-40 text-sm"
+                autoComplete="off"
+                aria-label={`App-password for ${m.address}`}
+                disabled={r?.ok}
+              />
+              {r &&
+                (r.ok ? (
+                  <Check size={14} className="shrink-0 text-emerald-500" aria-label="connected" />
+                ) : (
+                  <span
+                    className="shrink-0 text-[11px] text-red-600"
+                    title={r.msg}
+                  >
+                    failed
+                  </span>
+                ))}
+            </li>
+          );
+        })}
+      </ul>
+
+      {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
+
+      <div className="mt-3 flex gap-2">
+        <Button size="sm" variant="accent" onClick={connectAll} disabled={busy}>
+          {busy ? <Loader2 size={12} className="animate-spin" aria-hidden /> : null}
+          {busy ? "CONNECTING…" : `CONNECT ${withPw.length || ""}`.trim()}
+        </Button>
+        <Button size="sm" variant="quiet" onClick={() => setOpen(false)} disabled={busy}>
+          DONE
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /* Add mailboxes to the tenant — how IT brings whole departments under protection.
    A 50-seat domain is not added one box at a time, so this defaults to a bulk
    paste; a single-address mode stays for the one-off. */
@@ -930,9 +1146,17 @@ function AddMailbox({
   const [result, setResult] = useState<{
     added: number;
     skipped: number;
+    overLimit: number;
   } | null>(null);
 
   const parsed = mode === "many" ? parseAddresses(blob) : [];
+  // Seats still free on the plan. Used to warn BEFORE submitting that a big paste
+  // won't all fit, rather than letting the server silently skip the overflow.
+  const seatsLeft = mailboxes
+    ? Math.max(0, mailboxes.capacity - mailboxes.used)
+    : null;
+  const overBy =
+    mode === "many" && seatsLeft !== null ? Math.max(0, parsed.length - seatsLeft) : 0;
 
   async function submitOne() {
     if (!address.includes("@")) {
@@ -970,7 +1194,11 @@ function AddMailbox({
         addresses: parsed,
         mailbox_class: klass,
       });
-      setResult({ added: r.created_count, skipped: r.skipped_count });
+      setResult({
+        added: r.created_count,
+        skipped: r.skipped_count,
+        overLimit: r.over_limit_count,
+      });
       setBlob("");
       await onAdded();
     } catch (e) {
@@ -1079,9 +1307,18 @@ function AddMailbox({
           />
           <p className="fg-3 mt-1 text-xs">
             {parsed.length > 0
-              ? `${parsed.length} address${parsed.length === 1 ? "" : "es"} — separated by commas, spaces or new lines.`
+              ? `${parsed.length} address${parsed.length === 1 ? "" : "es"}${
+                  seatsLeft !== null ? ` · ${seatsLeft} seat${seatsLeft === 1 ? "" : "s"} left` : ""
+                } — separated by commas, spaces or new lines.`
               : "Paste from a spreadsheet — commas, spaces or new lines all work."}
           </p>
+          {overBy > 0 && (
+            <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+              That's {overBy} more than your {seatsLeft} remaining seat
+              {seatsLeft === 1 ? "" : "s"}. The first {seatsLeft} will be added; the
+              rest are skipped until you buy more seats.
+            </p>
+          )}
         </>
       ) : (
         <>
@@ -1109,7 +1346,10 @@ function AddMailbox({
           {result.skipped > 0 && (
             <span className="fg-3 font-normal">
               {" "}
-              · skipped {result.skipped} (already added or invalid)
+              · skipped {result.skipped}
+              {result.overLimit > 0
+                ? ` (${result.overLimit} need more seats, the rest already added, invalid or unverified)`
+                : " (already added, invalid or on an unverified domain)"}
             </span>
           )}
         </p>
@@ -1527,7 +1767,24 @@ function UpgradePlans({
   );
 }
 
+/* Is the tenant's primary (registered) domain DNS-verified right now? The whole
+   dashboard is gated on this — no verified domain means the verify step, not the
+   dashboard — and a change in it (a verified domain going unverified) means the
+   DNS proof was pulled and the session must re-verify. False when there is no
+   primary domain at all (nothing to verify → gate falls through). */
+function primaryDomainVerified(t: TenantInfo): boolean {
+  if (!t.primary_domain) return false;
+  return t.domains.some(
+    (d) => d.registrable_domain === t.primary_domain && d.verified,
+  );
+}
+
 export default function Dashboard() {
+  const navigate = useNavigate();
+  // Tracks whether the primary domain was verified on the previous load, so we can
+  // catch it flipping to unverified (its DNS record was deleted and the server
+  // revoked it) and force a re-auth + re-verify. null = not yet known.
+  const domainWasVerifiedRef = useRef<boolean | null>(null);
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [mailboxes, setMailboxes] = useState<MailboxRecord[]>([]);
   const [tenant, setTenant] = useState<TenantInfo | null>(null);
@@ -1549,6 +1806,24 @@ export default function Dashboard() {
         api.tenant(),
         api.me(),
       ]);
+      // Domain verification can be revoked between loads — the scheduler pulls it
+      // when the DNS proof is deleted. If it was verified and now isn't, the trust
+      // that gated this session is gone: sign the user out and send them back to
+      // verify, rather than leaving a live session on an unverified domain.
+      const nowVerified = primaryDomainVerified(t);
+      if (domainWasVerifiedRef.current === true && !nowVerified) {
+        domainWasVerifiedRef.current = null;
+        auth.clear();
+        navigate("/signin", {
+          state: {
+            notice:
+              "Your domain verification was lost — the DNS record we check is no longer found. Sign in and verify your domain again to continue.",
+          },
+        });
+        return;
+      }
+      domainWasVerifiedRef.current = nowVerified;
+
       setAlerts(a.alerts);
       setMailboxes(m.mailboxes);
       setTenant(t);
@@ -1570,7 +1845,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     // Fetch-on-mount: load() flips a loading flag before its first await. That's
@@ -1683,9 +1958,7 @@ export default function Dashboard() {
   // can't be added first either. A tenant with no primary domain (edge case)
   // falls through rather than being locked out.
   const primaryUnverified =
-    !!tenant?.primary_domain &&
-    !tenant.domains.find((d) => d.registrable_domain === tenant.primary_domain)
-      ?.verified;
+    !!tenant?.primary_domain && !primaryDomainVerified(tenant);
 
   if (tenant && primaryUnverified) {
     return (
@@ -2004,6 +2277,13 @@ export default function Dashboard() {
                   ))}
               </ul>
             )}
+            <BulkImapConnect
+              mailboxes={mailboxes.filter(
+                (m) => !m.sources.some((s) => MAIL_SOURCES.has(s)),
+              )}
+              domain={tenant?.primary_domain ?? null}
+              onDone={load}
+            />
             <AddMailbox onAdded={load} mailboxes={tenant?.mailboxes} />
           </div>
 

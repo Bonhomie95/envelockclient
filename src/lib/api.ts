@@ -669,6 +669,11 @@ export const api = {
       skipped: { address: string; reason: string }[];
       created_count: number;
       skipped_count: number;
+      //: How many were refused purely for lack of a seat (vs invalid/duplicate/
+      //: unverified-domain), so the UI can prompt to buy more rather than lump
+      //: them in with genuine errors.
+      over_limit_count: number;
+      capacity: number;
     }>("/api/v1/mailboxes/bulk", {
       method: "POST",
       body: JSON.stringify(body),

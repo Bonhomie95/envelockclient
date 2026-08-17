@@ -601,6 +601,16 @@ export const api = {
       { method: "POST" },
     ),
 
+  // Push/sensor config — carries the VAPID public key the browser needs to
+  // subscribe, and whether push is even configured on this deployment.
+  sensorConfig: () =>
+    request<{
+      heartbeat_seconds: number;
+      vapid_public_key: string | null;
+      push_available: boolean;
+      endpoints: Record<string, string>;
+    }>("/api/v1/sensor/config"),
+
   // L1 Web Push registration (PRD §8.1). Register the browser so Critical alerts
   // reach the user even when the app tab is closed.
   pushSubscribe: (body: { endpoint: string; p256dh: string; auth: string }) =>

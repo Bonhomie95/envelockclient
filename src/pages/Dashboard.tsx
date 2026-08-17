@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   Activity,
   Banknote,
+  Bell,
   Check,
   CheckCircle2,
   Copy,
@@ -52,6 +53,12 @@ import ConnectionAdvisor from "../components/ConnectionAdvisor";
 import { DomainVerify } from "../components/DomainVerify";
 import MfaEnroll from "../components/MfaEnroll";
 import { PLAN_RANK, PLAN_TIERS } from "../lib/plans";
+import {
+  disablePush,
+  enablePush,
+  getPushState,
+  type PushState,
+} from "../lib/push";
 
 interface Me {
   email: string;
@@ -1767,6 +1774,89 @@ function UpgradePlans({
   );
 }
 
+/* L1 browser-push toggle. Reflects THIS browser's real subscription state and lets
+   the user turn Critical-alert push on/off. Hidden entirely when the browser can't
+   do push or the deployment has no VAPID key configured — no dead controls. */
+function PushAlerts() {
+  const [state, setState] = useState<PushState | "loading">("loading");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getPushState()
+      .then((s) => live && setState(s))
+      .catch(() => live && setState("unsupported"));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (state === "loading" || state === "unsupported" || state === "unavailable")
+    return null;
+
+  async function enable() {
+    setBusy(true);
+    try {
+      setState(await enablePush());
+    } catch {
+      setState("off");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function disable() {
+    setBusy(true);
+    try {
+      setState(await disablePush());
+    } catch {
+      setState("on");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="sect-label">Browser alerts</h2>
+        {state === "on" && <span className="mono-xs text-emerald-500">ON</span>}
+      </div>
+      {state === "denied" ? (
+        <p className="fg-3 mt-2 text-xs leading-relaxed">
+          Notifications are blocked for this site. Turn them on in your browser's
+          site settings, then reload to enable Critical-alert push.
+        </p>
+      ) : (
+        <>
+          <p className="fg-3 mt-2 text-xs leading-relaxed">
+            Get Critical alerts as a browser notification even when the Envelock tab
+            is closed. This device only.
+          </p>
+          <div className="mt-3">
+            {state === "on" ? (
+              <Button size="sm" variant="quiet" onClick={disable} disabled={busy}>
+                {busy ? (
+                  <Loader2 size={12} className="animate-spin" aria-hidden />
+                ) : null}
+                Turn off
+              </Button>
+            ) : (
+              <Button size="sm" variant="accent" onClick={enable} disabled={busy}>
+                {busy ? (
+                  <Loader2 size={12} className="animate-spin" aria-hidden />
+                ) : (
+                  <Bell size={12} aria-hidden />
+                )}
+                Enable browser alerts
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* Is the tenant's primary (registered) domain DNS-verified right now? The whole
    dashboard is gated on this — no verified domain means the verify step, not the
    dashboard — and a change in it (a verified domain going unverified) means the
@@ -2212,6 +2302,8 @@ export default function Dashboard() {
           )}
 
           {tenant && <UpgradePlans tenant={tenant} onChanged={load} />}
+
+          <PushAlerts />
 
           <ConnectionAdvisor defaultDomain={hasDomain ? domain : ""} />
 

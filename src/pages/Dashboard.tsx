@@ -1931,7 +1931,7 @@ export default function Dashboard() {
       if (e instanceof ApiError && e.status === 403)
         setError("pending-approval");
       else if (e instanceof ApiError && e.unauthorized) setError("signed-out");
-      else setError("Could not reach the API. Is the server running?");
+      else setError("We couldn't reach Envelock. Check your connection and try again.");
     } finally {
       setLoading(false);
     }

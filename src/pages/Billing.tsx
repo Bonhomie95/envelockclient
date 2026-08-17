@@ -44,7 +44,7 @@ export default function Billing() {
       setError(
         e instanceof ApiError && e.unauthorized
           ? "signed-out"
-          : "Could not load billing. Is the server running?",
+          : "We couldn't load your billing details. Please try again.",
       );
     }
   }, []);

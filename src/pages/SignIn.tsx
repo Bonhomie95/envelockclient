@@ -55,7 +55,7 @@ export default function SignIn() {
     setError(
       e instanceof ApiError
         ? e.message
-        : "Could not reach the API. Is the server running?",
+        : "We couldn't reach Envelock — it may be waking up. Try again in a moment.",
     );
   }
 

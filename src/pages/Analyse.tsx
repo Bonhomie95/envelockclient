@@ -113,7 +113,7 @@ export default function Analyse() {
         }),
       );
     } catch {
-      setError("Could not reach the API. Start the server on :8010.");
+      setError("We couldn't run the scan just now. Please try again in a moment.");
     } finally {
       setLoading(false);
     }

@@ -198,6 +198,8 @@ export interface TenantInfo {
     is_defensive: boolean;
   }[];
   primary_domain: string | null;
+  //: Colleagues who self-registered and are awaiting an admin's approval.
+  pending_members: number;
 }
 
 export interface QualityMetric {
@@ -332,6 +334,25 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
     !path.includes("/auth/login")
   ) {
     if (await tryRefresh()) return request<T>(path, init, true);
+  }
+
+  // A 401 that survived the refresh attempt (or had no refresh token) means the
+  // session is truly over — expired, or revoked by refresh-reuse detection (e.g.
+  // two tabs racing the rotating refresh token). Clear it and send the user to
+  // sign in, rather than surfacing a cryptic 401 on whatever they just clicked
+  // (which reads like "wrong password" on, say, the IMAP test).
+  if (
+    res.status === 401 &&
+    !path.includes("/auth/login") &&
+    !path.includes("/auth/refresh")
+  ) {
+    auth.clear();
+    if (
+      typeof window !== "undefined" &&
+      !window.location.pathname.startsWith("/signin")
+    ) {
+      window.location.assign("/signin");
+    }
   }
 
   if (!res.ok) {

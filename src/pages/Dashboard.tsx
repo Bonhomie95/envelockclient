@@ -2288,6 +2288,33 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Teammates awaiting approval — admins/owners are told here so they don't
+          have to stumble onto the Team page to find a pending colleague. */}
+      {tenant &&
+        tenant.pending_members > 0 &&
+        (auth.role === "owner" || auth.role === "admin") && (
+          <div className="shell pt-4">
+            <div className="callout flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+              <ShieldAlert size={18} className="shrink-0" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">
+                  {tenant.pending_members} teammate
+                  {tenant.pending_members === 1 ? "" : "s"} awaiting approval
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed">
+                  Someone from your company signed up and needs access. Review them,
+                  set their role, or decline — from your Team page.
+                </p>
+              </div>
+              <Link to="/team" className="shrink-0">
+                <Button size="sm" variant="accent">
+                  REVIEW TEAM
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+
       {/* Trial countdown — shown while the trial runs and no card is on file, so
           the days remaining are always in view with a one-click path to keep it. */}
       {tenant?.trial.active &&

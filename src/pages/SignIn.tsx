@@ -94,7 +94,13 @@ export default function SignIn() {
         setStep("mfa-verify");
       }
     } catch (e) {
-      fail(e);
+      // The email is already registered — flip to sign-in so they can just log in.
+      if (e instanceof ApiError && e.status === 409) {
+        setMode("signin");
+        setError("You already have an account with that email — please sign in.");
+      } else {
+        fail(e);
+      }
     } finally {
       setBusy(false);
     }

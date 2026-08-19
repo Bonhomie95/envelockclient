@@ -6,7 +6,10 @@ import {
   Check,
   Globe,
   Loader2,
+  MessageSquareText,
+  ScanEye,
   Search,
+  Sparkles,
   UserCheck,
 } from "lucide-react";
 import { api, type ScanResult } from "../lib/api";
@@ -144,6 +147,24 @@ const PROBLEMS = [
   },
 ];
 
+const AI_POINTS = [
+  {
+    icon: Sparkles,
+    title: "Reads intent, not just red flags",
+    body: "It weighs the whole message the way a wary colleague would — is this really your supplier, or someone impersonating them to reroute a payment? Business email compromise (a fake invoice, changed bank details, a 'CEO' asking for an urgent transfer) is exactly what it's built to catch.",
+  },
+  {
+    icon: ScanEye,
+    title: "Used only where judgment is needed",
+    body: "The fast rules settle the clear-cut cases on their own. The AI is held back for the genuine grey area — the clever fakes that fool people — so you get a sharper verdict without a flood of false alarms, and without running your mail through AI wholesale.",
+  },
+  {
+    icon: MessageSquareText,
+    title: "Explained in plain English",
+    body: "Every alert reads like an analyst told you why — “this looks like a scam: the bank details changed and the sender's domain was registered last week” — never a mysterious score. Your team can act in seconds.",
+  },
+];
+
 const PLANS = [
   {
     name: "Guard",
@@ -163,6 +184,7 @@ const PLANS = [
       "Everything in Guard",
       "Bank detail change alerts",
       "Fake supplier detection",
+      "AI analyst on suspicious payment emails",
       "Dashboard for your IT team",
     ],
     cta: "Start free trial",
@@ -192,7 +214,10 @@ export default function Landing() {
       <section className="border-b">
         <div className="shell grid12 items-center py-16 md:py-24">
           <div className="col-span-12 lg:col-span-6">
-            <h1 className="display">
+            <span className="mono-xs accent inline-flex items-center gap-1.5 rounded-full border border-[var(--rule)] px-3 py-1">
+              <Sparkles size={12} aria-hidden /> NOW WITH AN AI FRAUD ANALYST
+            </span>
+            <h1 className="display mt-6">
               Your money should
               <br />
               not go to the
@@ -284,6 +309,38 @@ export default function Landing() {
               The documentation
             </Link>{" "}
             covers every detection, integration and data-handling policy.
+          </p>
+        </div>
+      </section>
+
+      {/* AI analyst */}
+      <section className="border-b">
+        <div className="shell py-16 md:py-24">
+          <SectionHead
+            label="AI on your side"
+            title="An AI fraud analyst on the emails built to fool people."
+            lede="Rules catch the obvious. For the cleverly-disguised payment scams that slip past them, Envelock brings in an AI analyst to judge intent before you're ever asked to pay."
+          />
+
+          <div className="mt-12 grid gap-px bg-[var(--rule)] md:grid-cols-3">
+            {AI_POINTS.map((p) => {
+              const Icon = p.icon;
+              return (
+                <article key={p.title} className="bg-[var(--bg-raised)] p-8">
+                  <Icon size={20} className="accent" aria-hidden />
+                  <h3 className="mt-6 text-base font-semibold text-balance">
+                    {p.title}
+                  </h3>
+                  <p className="fg-2 mt-3 text-sm leading-relaxed">{p.body}</p>
+                </article>
+              );
+            })}
+          </div>
+
+          <p className="fg-3 mt-10 text-sm leading-relaxed">
+            Your mail is never used to train anyone's model — the analyst only takes
+            a closer read of the few messages that warrant one, and the deterministic
+            checks always run first so nothing depends on the AI being right.
           </p>
         </div>
       </section>

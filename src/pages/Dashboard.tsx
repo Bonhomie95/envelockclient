@@ -1857,6 +1857,112 @@ function PushAlerts() {
   );
 }
 
+/* The post-sign-in onboarding wizard shown until the domain is verified. Two
+   steps you can move between with Back/Continue — the authenticator (MFA) step
+   and the domain-verification step — so "Back" never dumps the user at sign-in.
+   The dashboard only renders once the domain verifies. */
+function OnboardingGate({
+  domain,
+  mfaEnabled,
+  onVerified,
+  onReload,
+  onSignOut,
+}: {
+  domain: string;
+  mfaEnabled: boolean;
+  onVerified: () => void;
+  onReload: () => Promise<void>;
+  onSignOut: () => void;
+}) {
+  const [step, setStep] = useState<"mfa" | "domain">("domain");
+  const [enrolling, setEnrolling] = useState(false);
+
+  if (step === "mfa") {
+    return (
+      <main className="shell py-16">
+        <div className="mx-auto max-w-lg">
+          <div className="mb-6 text-center">
+            <Fingerprint size={28} className="fg-3 mx-auto" aria-hidden />
+            <h1 className="headline mt-5">Two-factor authentication</h1>
+          </div>
+
+          {mfaEnabled ? (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
+              <span className="font-semibold text-emerald-500">
+                ✓ Two-factor is on.
+              </span>{" "}
+              Your account is protected by your authenticator app.
+            </div>
+          ) : enrolling ? (
+            <MfaEnroll
+              onDone={async () => {
+                setEnrolling(false);
+                await onReload();
+              }}
+              onCancel={() => setEnrolling(false)}
+            />
+          ) : (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+              <p className="font-semibold text-amber-600 dark:text-amber-400">
+                Two-factor isn't set up yet
+              </p>
+              <p className="mt-1 opacity-80">
+                Add an authenticator app so a stolen password can't become a stolen
+                account. You can do this now or later from your dashboard.
+              </p>
+              <Button
+                variant="accent"
+                size="sm"
+                className="mt-3"
+                onClick={() => setEnrolling(true)}
+              >
+                <KeyRound size={13} aria-hidden /> Set up two-factor
+              </Button>
+            </div>
+          )}
+
+          {!enrolling && (
+            <div className="mt-5 flex items-center gap-3">
+              <Button variant="accent" onClick={() => setStep("domain")}>
+                Continue to domain verification →
+              </Button>
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="fg-3 mono-xs ml-auto cursor-pointer hover:text-[var(--fg)]"
+              >
+                SIGN OUT
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="shell py-16">
+      <div className="mx-auto max-w-lg">
+        <div className="mb-6 text-center">
+          <ShieldCheck size={28} className="fg-3 mx-auto" aria-hidden />
+          <h1 className="headline mt-5">Verify your domain to continue</h1>
+          <p className="lede mx-auto mt-3 text-base">
+            One last step. Prove you control{" "}
+            <span className="font-semibold">{domain}</span> and your dashboard opens
+            automatically. This is what keeps everyone else out of your company's
+            mail.
+          </p>
+        </div>
+        <DomainVerify
+          domain={domain}
+          onVerified={onVerified}
+          onBack={() => setStep("mfa")}
+        />
+      </div>
+    </main>
+  );
+}
+
 /* Is the tenant's primary (registered) domain DNS-verified right now? The whole
    dashboard is gated on this — no verified domain means the verify step, not the
    dashboard — and a change in it (a verified domain going unverified) means the
@@ -2052,28 +2158,18 @@ export default function Dashboard() {
 
   if (tenant && primaryUnverified) {
     return (
-      <main className="shell py-16">
-        <div className="mx-auto max-w-lg">
-          <div className="mb-6 text-center">
-            <ShieldCheck size={28} className="fg-3 mx-auto" aria-hidden />
-            <h1 className="headline mt-5">Verify your domain to continue</h1>
-            <p className="lede mx-auto mt-3 text-base">
-              One last step. Prove you control{" "}
-              <span className="font-semibold">{tenant.primary_domain}</span> and
-              your dashboard opens automatically. This is what keeps everyone else
-              out of your company's mail.
-            </p>
-          </div>
-          <DomainVerify
-            domain={tenant.primary_domain!}
-            onVerified={() => void load()}
-            onBack={() => {
-              auth.clear();
-              setError("signed-out");
-            }}
-          />
-        </div>
-      </main>
+      <OnboardingGate
+        domain={tenant.primary_domain!}
+        mfaEnabled={!!me?.mfa_enabled}
+        onVerified={() => void load()}
+        onReload={load}
+        onSignOut={() => {
+          auth.clear();
+          navigate("/signin", {
+            state: { notice: "Signed out. Sign back in to finish setting up." },
+          });
+        }}
+      />
     );
   }
 

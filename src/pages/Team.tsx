@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { ApiError, api, auth } from "../lib/api";
 import { Button, cn } from "../components/primitives";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { toast } from "../lib/toast";
 
 type Member = {
   id: string;
@@ -212,14 +214,29 @@ export default function Team() {
 
   const [acting, setActing] = useState<string | null>(null);
 
-  async function remove(m: Member) {
-    if (!window.confirm(`Remove ${m.email}? They lose access immediately.`)) return;
+  const [pendingRemoval, setPendingRemoval] = useState<Member | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  function remove(m: Member) {
+    setPendingRemoval(m);
+  }
+
+  async function confirmRemove() {
+    const target = pendingRemoval;
+    if (!target) return;
+    setRemoving(true);
     try {
-      await api.removeMember(m.id);
+      await api.removeMember(target.id);
       window.dispatchEvent(new Event("envelock:team-changed"));
+      setPendingRemoval(null);
+      toast.success(`${target.email} no longer has access.`);
       await load();
-    } catch {
-      /* surfaced on next load */
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError ? e.message : "Could not remove that person.",
+      );
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -388,6 +405,21 @@ export default function Team() {
           {error}
         </p>
       )}
+
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title="Remove this person?"
+        body={
+          pendingRemoval
+            ? `${pendingRemoval.email} loses access to this workspace ` +
+              "immediately, on every device. Their alert history is kept."
+            : ""
+        }
+        confirmLabel="REMOVE ACCESS"
+        busy={removing}
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setPendingRemoval(null)}
+      />
     </main>
   );
 }

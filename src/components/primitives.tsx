@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { forwardRef, type ReactNode } from "react";
 import {
   AlertTriangle,
   Info,
@@ -64,26 +64,27 @@ export function LevelChip({
   );
 }
 
-export function Button({
-  children,
-  variant = "line",
-  size = "md",
-  className,
-  ...props
-}: {
-  children: ReactNode;
-  variant?: "accent" | "solid" | "line" | "quiet";
-  size?: "sm" | "md" | "lg";
-} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+export const Button = forwardRef<
+  HTMLButtonElement,
+  {
+    children: ReactNode;
+    variant?: "accent" | "solid" | "line" | "quiet";
+    size?: "sm" | "md" | "lg";
+  } & React.ButtonHTMLAttributes<HTMLButtonElement>
+>(function Button(
+  { children, variant = "line", size = "md", className, ...props },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       className={cn("btn", `btn-${variant}`, `btn-${size}`, className)}
       {...props}
     >
       {children}
     </button>
   );
-}
+});
 
 /** Section header. A short accent rule sets the section apart without
  *  numbering it — numbers read as a manual, not a product. */

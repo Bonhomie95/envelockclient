@@ -131,6 +131,45 @@ export interface ProtectionAdvice {
   missing: ProtectionGap[];
 }
 
+/** One (host, port, security) the connector will try, and where it came from —
+ *  "dns-srv" and "autoconfig" are the domain's own published settings, the rest
+ *  are conventions we fall back to. */
+export interface ImapSettings {
+  host: string;
+  port: number;
+  security: "ssl" | "starttls" | "none";
+  source: string;
+}
+
+/** Why a connection failed, in a form the UI can act on. `code` is stable;
+ *  `hint` is the fix to show under the field. */
+export interface ImapError {
+  code: string;
+  message: string;
+  hint: string;
+  detail: string;
+}
+
+export interface ImapProbeResult {
+  ok: boolean;
+  settings: ImapSettings | null;
+  username: string | null;
+  error: ImapError | null;
+  attempts: (ImapSettings & { username: string; ok: boolean; error?: ImapError })[];
+  reason: string;
+}
+
+export interface ImapConnectBody {
+  password: string;
+  /** Optional: leave the server blank and we detect it. */
+  imap_host?: string;
+  imap_port?: number;
+  security?: "ssl" | "starttls" | "none";
+  username?: string;
+  /** False pins the attempt to exactly the settings given (no fallback). */
+  autodiscover?: boolean;
+}
+
 export interface MailboxRecord {
   id: string;
   address: string;
@@ -710,20 +749,23 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  connectImap: (
-    mailboxId: string,
-    body: {
-      imap_host: string;
-      imap_port: number;
-      password: string;
-      security?: "ssl" | "starttls" | "none";
-      username?: string;
-    },
-  ) =>
-    request<MailboxRecord>(`/api/v1/mailboxes/${mailboxId}/connect/imap`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  connectImap: (mailboxId: string, body: ImapConnectBody) =>
+    request<MailboxRecord & { imap?: ImapSettings & { username: string } }>(
+      `/api/v1/mailboxes/${mailboxId}/connect/imap`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  // What server this mailbox most likely needs — no password involved. Backs the
+  // "Find my settings" button, which is what turns a failed connection into a
+  // one-click one for anyone who doesn't know their IMAP host by heart.
+  imapSettings: (mailboxId: string) =>
+    request<{
+      address: string;
+      detected: boolean;
+      settings: ImapSettings | null;
+      candidates: ImapSettings[];
+      note: string;
+    }>(`/api/v1/mailboxes/${mailboxId}/connect/imap/settings`),
 
   // Poll a connected IMAP mailbox immediately — the "Sync now" button. Fetches
   // any new mail through the full detection pipeline and reports what it found.
@@ -733,17 +775,8 @@ export const api = {
     }),
 
   // Verify IMAP settings without storing anything (the form's "Test" button).
-  testImap: (
-    mailboxId: string,
-    body: {
-      imap_host: string;
-      imap_port: number;
-      password: string;
-      security?: "ssl" | "starttls" | "none";
-      username?: string;
-    },
-  ) =>
-    request<{ ok: boolean; reason: string }>(
+  testImap: (mailboxId: string, body: ImapConnectBody) =>
+    request<ImapProbeResult>(
       `/api/v1/mailboxes/${mailboxId}/connect/imap/test`,
       { method: "POST", body: JSON.stringify(body) },
     ),

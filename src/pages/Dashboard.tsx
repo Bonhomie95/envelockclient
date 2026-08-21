@@ -30,6 +30,8 @@ import {
   auth,
   type AlertRecord,
   type ConnectionPlan,
+  type ImapConnectBody,
+  type ImapProbeResult,
   type MailboxRecord,
   type Oversight,
   type QualityMetric,
@@ -49,10 +51,12 @@ const MAIL_SOURCES = new Set([
   "journal",
 ]);
 import { Button, LevelChip, TierChip, cn } from "../components/primitives";
+import ConfirmDialog from "../components/ConfirmDialog";
 import ConnectionAdvisor from "../components/ConnectionAdvisor";
 import { DomainVerify } from "../components/DomainVerify";
 import MfaEnroll from "../components/MfaEnroll";
 import { PLAN_RANK, PLAN_TIERS } from "../lib/plans";
+import { toast } from "../lib/toast";
 import {
   disablePush,
   enablePush,
@@ -327,17 +331,22 @@ function MailboxRow({
     setNote(null);
     try {
       const r = await api.syncMailbox(m.id);
-      setNote(
+      const summary =
         r.fetched === 0
           ? "Synced — no new mail."
           : `Synced ${r.fetched} message${r.fetched === 1 ? "" : "s"}` +
-              (r.alerted ? `, ${r.alerted} flagged` : "") +
-              (r.quarantined ? `, ${r.quarantined} quarantined` : "") +
-              ".",
-      );
+            (r.alerted ? `, ${r.alerted} flagged` : "") +
+            (r.quarantined ? `, ${r.quarantined} quarantined` : "") +
+            ".";
+      setNote(summary);
+      if (r.alerted) toast.error(`${m.address}: ${summary}`);
+      else toast.success(`${m.address}: ${summary}`);
       await onChanged();
     } catch (e) {
-      setNote(e instanceof ApiError ? e.message : "Could not sync this mailbox.");
+      const message =
+        e instanceof ApiError ? e.message : "Could not sync this mailbox.";
+      setNote(message);
+      toast.error(message);
     } finally {
       setSyncing(false);
     }
@@ -394,6 +403,19 @@ function MailboxRow({
         </div>
       )}
 
+      {/* A poll that failed for a transient reason (server unreachable, TLS
+          hiccup) is not a reconnect prompt, but it must not be silent either:
+          "connected" with no mail arriving is the worst state to hide. */}
+      {!m.needs_reconnect && m.connection_error && (
+        <div className="callout mt-2 flex items-start gap-2 px-3 py-2">
+          <ShieldAlert size={14} className="mt-0.5 shrink-0" aria-hidden />
+          <p className="text-xs leading-relaxed">
+            <span className="font-semibold">Last sync didn&rsquo;t complete.</span>{" "}
+            {m.connection_error} We keep retrying — press Sync to try now.
+          </p>
+        </div>
+      )}
+
       {note && <p className="fg-2 mono-xs mt-2">{note}</p>}
 
       {/* Why this level, and exactly how to raise it — so "Standard" is never a
@@ -429,6 +451,104 @@ function MailboxRow({
   );
 }
 
+/* What the connection attempt actually did, and what to do about it.
+
+   The old form said "could not reach the IMAP server" for a typo, a blocked
+   port, a TLS mismatch and a provider that has switched password auth off —
+   four different fixes behind one sentence. The server now returns a code, so
+   this shows the specific remedy and, where the remedy is OAuth, the button
+   that performs it. */
+const IMAP_ERROR_ACTION: Record<string, string> = {
+  dns_not_found: "Open server settings and press “Find my settings”.",
+  timeout: "Open server settings and try STARTTLS on port 143.",
+  connection_refused: "Open server settings and try the other port.",
+  tls_error: "Open server settings and switch SSL/TLS ↔ STARTTLS.",
+  certificate_error: "Use the exact server name your provider documents.",
+  blocked_host: "Use your provider's public mail server name.",
+};
+
+function ImapProbeReport({
+  result,
+  onUseOauth,
+  oauthAvailable,
+}: {
+  result: ImapProbeResult;
+  onUseOauth: () => void;
+  oauthAvailable: boolean;
+}) {
+  const [detail, setDetail] = useState(false);
+
+  if (result.ok) {
+    return (
+      <div className="border border-[var(--ok)] p-3" role="status">
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--ok)]">
+          <Check size={13} className="mt-0.5 shrink-0" aria-hidden />
+          <span>
+            Signed in. Using{" "}
+            <span className="font-mono">
+              {result.settings?.host}:{result.settings?.port}
+            </span>{" "}
+            ({result.settings?.security === "ssl" ? "SSL/TLS" : result.settings?.security}
+            ) as <span className="font-mono">{result.username}</span>.
+          </span>
+        </p>
+      </div>
+    );
+  }
+
+  const error = result.error;
+  const suggestsOauth =
+    error?.code === "oauth_required" || error?.code === "app_password_required";
+
+  return (
+    <div className="border border-[var(--danger)] p-3" role="alert">
+      <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--danger)]">
+        <X size={13} className="mt-0.5 shrink-0" aria-hidden />
+        <span className="font-semibold">{error?.message ?? "Could not connect."}</span>
+      </p>
+      {error?.hint && (
+        <p className="fg-2 mt-1.5 pl-[18px] text-xs leading-relaxed">{error.hint}</p>
+      )}
+      {error && IMAP_ERROR_ACTION[error.code] && (
+        <p className="fg-3 mono-xs mt-1.5 pl-[18px]">
+          {IMAP_ERROR_ACTION[error.code]}
+        </p>
+      )}
+      {suggestsOauth && oauthAvailable && (
+        <div className="mt-2.5 pl-[18px]">
+          <Button size="sm" variant="accent" onClick={onUseOauth}>
+            <Link2 size={12} aria-hidden /> CONNECT WITH OAUTH INSTEAD
+          </Button>
+        </div>
+      )}
+      {result.attempts.length > 0 && (
+        <div className="mt-2.5 pl-[18px]">
+          <button
+            type="button"
+            onClick={() => setDetail((d) => !d)}
+            aria-expanded={detail}
+            className="fg-3 mono-xs cursor-pointer hover:text-[var(--fg)]"
+          >
+            {detail ? "HIDE" : "SHOW"} WHAT WE TRIED ({result.attempts.length})
+          </button>
+          {detail && (
+            <ul className="fg-3 mono-xs mt-1.5 space-y-1" role="list">
+              {result.attempts.map((a, i) => (
+                <li key={`${a.host}:${a.port}:${i}`} className="break-all">
+                  {a.ok ? "✓" : "✗"} {a.host}:{a.port} ·{" "}
+                  {a.security === "ssl" ? "SSL" : a.security.toUpperCase()} ·{" "}
+                  {a.username}
+                  {a.error ? ` — ${a.error.code}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* Connect a mailbox using the RIGHT method for its actual mail provider — detected
    from the domain's MX records, not from whichever OAuth apps this deployment
    happens to have configured. A Google/Microsoft domain gets one-click OAuth; any
@@ -459,9 +579,9 @@ function MailboxConnect({
   const [ingest, setIngest] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(
-    null,
-  );
+  const [advanced, setAdvanced] = useState(false);
+  const [detected, setDetected] = useState<string | null>(null);
+  const [probe, setProbe] = useState<ImapProbeResult | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -496,31 +616,76 @@ function MailboxConnect({
     }
   }
 
-  const imapBody = () => ({
-    imap_host: host,
-    imap_port: port,
-    security,
-    username: username.trim() || undefined,
+  // The server is optional: blank means "detect it". When the user has typed
+  // one we send it, and the backend still falls back to the alternatives if it
+  // does not answer — unless they have pinned it under Advanced.
+  const imapBody = (): ImapConnectBody => ({
     password,
+    // Whatever server is in the form is tried FIRST either way. The difference
+    // is the fallback: with the panel closed we also try the alternatives we
+    // discover, with it open we use exactly what was typed.
+    ...(host ? { imap_host: host, imap_port: port, security } : {}),
+    username: username.trim() || undefined,
+    autodiscover: !advanced,
   });
+
+  // Detect the server from the address — no password needed. This is the step
+  // that removes the guesswork most failed connections come from.
+  async function findSettings() {
+    setBusy("detect");
+    setNote(null);
+    try {
+      const r = await api.imapSettings(mailbox.id);
+      if (r.settings) {
+        setHost(r.settings.host);
+        setPort(r.settings.port);
+        setSecurity(r.settings.security);
+        setDetected(r.detected ? r.note : r.note);
+      } else {
+        setNote(
+          "We could not detect your mail server. Enter it from your provider's help page.",
+        );
+      }
+    } catch (e) {
+      setNote(e instanceof ApiError ? e.message : "Could not detect settings.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   // Verify the settings without saving — lets the user get the config right
   // before committing the mailbox.
   async function testImap() {
-    if (!host || !password) {
-      setNote("Enter the IMAP host and the password first.");
+    if (!password) {
+      setNote("Enter the mailbox password first.");
       return;
     }
     setBusy("test");
     setNote(null);
-    setTestResult(null);
+    setProbe(null);
     try {
       const r = await api.testImap(mailbox.id, imapBody());
-      setTestResult({ ok: r.ok, msg: r.ok ? "Connected — settings work." : r.reason });
+      setProbe(r);
+      // A successful probe may have landed on different settings than were
+      // typed; show what actually worked so the form matches reality.
+      if (r.ok && r.settings) {
+        setHost(r.settings.host);
+        setPort(r.settings.port);
+        setSecurity(r.settings.security);
+      }
     } catch (e) {
-      setTestResult({
+      setProbe({
         ok: false,
-        msg: e instanceof ApiError ? e.message : "Test failed.",
+        settings: null,
+        username: null,
+        error: {
+          code: "unknown",
+          message: e instanceof ApiError ? e.message : "Test failed.",
+          hint: "",
+          detail: "",
+        },
+        attempts: [],
+        reason: "",
       });
     } finally {
       setBusy(null);
@@ -528,16 +693,22 @@ function MailboxConnect({
   }
 
   async function submitImap() {
-    if (!host || !password) {
-      setNote("Enter the IMAP host and the mailbox password.");
+    if (!password) {
+      setNote("Enter the mailbox password or app password.");
       return;
     }
     setBusy("imap");
     setNote(null);
     try {
-      await api.connectImap(mailbox.id, imapBody());
+      const r = await api.connectImap(mailbox.id, imapBody());
       setPassword("");
       setMode(null);
+      setProbe(null);
+      toast.success(
+        r.imap
+          ? `Connected ${mailbox.address} on ${r.imap.host}:${r.imap.port}.`
+          : `Connected ${mailbox.address}.`,
+      );
       await onConnected();
     } catch (e) {
       setNote(e instanceof ApiError ? e.message : "Could not connect.");
@@ -637,97 +808,40 @@ function MailboxConnect({
       </div>
 
       {mode === "imap" && (
-        <div className="mt-3 space-y-2 border-l-2 border-[var(--accent)] pl-3">
-          <label className="fg-3 mono-xs block">IMAP SERVER &amp; PORT</label>
-          <div className="flex gap-2">
-            <input
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              placeholder="imap.yourprovider.com"
-              className="field flex-1 text-sm"
-              autoComplete="off"
-              aria-label="IMAP host"
-            />
-            <input
-              value={port}
-              onChange={(e) => setPort(Number(e.target.value) || 0)}
-              inputMode="numeric"
-              className="field w-20 text-sm"
-              aria-label="IMAP port"
-            />
-          </div>
-
-          <label className="fg-3 mono-xs block">SECURITY</label>
-          <div className="flex gap-px" role="group" aria-label="Transport security">
-            {(
-              [
-                ["ssl", "SSL/TLS", 993],
-                ["starttls", "STARTTLS", 143],
-                ["none", "NONE", 143],
-              ] as const
-            ).map(([val, label, defPort]) => (
+        <div className="mt-3 space-y-3 border-l-2 border-[var(--accent)] pl-3">
+          {/* The password is what the customer HAS; the server is what we can
+              work out. So it comes first, and the server settings are tucked
+              behind "Advanced" unless detection needs correcting. */}
+          <div>
+            <label htmlFor={`imap-pw-${mailbox.id}`} className="fg-3 mono-xs block">
+              MAILBOX PASSWORD
+            </label>
+            <div className="relative mt-1">
+              <input
+                id={`imap-pw-${mailbox.id}`}
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="app password or mailbox password"
+                className="field w-full pr-16 text-sm"
+                autoComplete="off"
+              />
               <button
-                key={val}
                 type="button"
-                onClick={() => {
-                  setSecurity(val);
-                  setPort(defPort); // sensible default; still editable
-                }}
-                aria-pressed={security === val}
-                className={cn(
-                  "font-mono flex-1 cursor-pointer border px-2 py-1.5 text-[11px] tracking-wide transition-colors",
-                  security === val
-                    ? "accent border-[var(--accent)]"
-                    : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
-                )}
+                onClick={() => setShowPassword((v) => !v)}
+                className="fg-3 mono-xs absolute inset-y-0 right-2 my-auto h-5 cursor-pointer hover:text-[var(--fg)]"
+                aria-label={showPassword ? "Hide password" : "Show password"}
               >
-                {label}
+                {showPassword ? "HIDE" : "SHOW"}
               </button>
-            ))}
-          </div>
-
-          <label className="fg-3 mono-xs block">USERNAME</label>
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder={address}
-            className="field text-sm"
-            autoComplete="off"
-            aria-label="IMAP username"
-          />
-
-          <label className="fg-3 mono-xs block">PASSWORD</label>
-          <div className="relative">
-            <input
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="mailbox or app password"
-              className="field w-full pr-16 text-sm"
-              autoComplete="off"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((s) => !s)}
-              className="fg-3 mono-xs absolute inset-y-0 right-2 my-auto h-5 cursor-pointer hover:text-[var(--fg)]"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? "HIDE" : "SHOW"}
-            </button>
+            </div>
+            <p className="fg-3 mt-1.5 text-xs leading-relaxed">
+              We work out your mail server automatically. If the first one
+              doesn&rsquo;t answer, we try the alternatives before giving up.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="line"
-              disabled={busy !== null}
-              onClick={testImap}
-            >
-              {busy === "test" ? (
-                <Loader2 size={12} className="animate-spin" aria-hidden />
-              ) : null}{" "}
-              TEST CONNECTION
-            </Button>
             <Button
               size="sm"
               variant="accent"
@@ -739,24 +853,108 @@ function MailboxConnect({
               ) : null}{" "}
               CONNECT MAILBOX
             </Button>
+            <Button size="sm" variant="line" disabled={busy !== null} onClick={testImap}>
+              {busy === "test" ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden />
+              ) : null}{" "}
+              TEST FIRST
+            </Button>
+            <button
+              type="button"
+              onClick={() => setAdvanced((v) => !v)}
+              aria-expanded={advanced}
+              className="fg-3 mono-xs cursor-pointer hover:text-[var(--fg)]"
+            >
+              {advanced ? "HIDE SERVER SETTINGS" : "SERVER SETTINGS"}
+            </button>
           </div>
 
-          {testResult && (
-            <p
-              className={cn(
-                "flex items-start gap-1.5 text-xs leading-relaxed",
-                testResult.ok ? "text-[var(--ok)]" : "text-[var(--danger)]",
-              )}
-              role="status"
-            >
-              {testResult.ok ? (
-                <Check size={13} className="mt-0.5 shrink-0" aria-hidden />
-              ) : (
-                <X size={13} className="mt-0.5 shrink-0" aria-hidden />
-              )}
-              {testResult.msg}
-            </p>
+          {advanced && (
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor={`imap-host-${mailbox.id}`} className="fg-3 mono-xs">
+                  IMAP SERVER &amp; PORT
+                </label>
+                <button
+                  type="button"
+                  onClick={findSettings}
+                  disabled={busy !== null}
+                  className="accent mono-xs cursor-pointer hover:underline disabled:opacity-50"
+                >
+                  {busy === "detect" ? "DETECTING…" : "FIND MY SETTINGS"}
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  id={`imap-host-${mailbox.id}`}
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  placeholder="detected automatically"
+                  className="field min-w-0 flex-1 text-sm"
+                  autoComplete="off"
+                  aria-label="IMAP host"
+                />
+                <input
+                  value={port}
+                  onChange={(e) => setPort(Number(e.target.value) || 0)}
+                  inputMode="numeric"
+                  className="field w-20 shrink-0 text-sm"
+                  aria-label="IMAP port"
+                />
+              </div>
+              {detected && <p className="fg-3 text-xs leading-relaxed">{detected}</p>}
+
+              <label className="fg-3 mono-xs block">SECURITY</label>
+              <div className="flex gap-px" role="group" aria-label="Transport security">
+                {(
+                  [
+                    ["ssl", "SSL/TLS", 993],
+                    ["starttls", "STARTTLS", 143],
+                    ["none", "NONE", 143],
+                  ] as const
+                ).map(([val, label, defPort]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => {
+                      setSecurity(val);
+                      setPort(defPort); // sensible default; still editable
+                    }}
+                    aria-pressed={security === val}
+                    className={cn(
+                      "font-mono flex-1 cursor-pointer border px-2 py-1.5 text-[11px] tracking-wide transition-colors",
+                      security === val
+                        ? "accent border-[var(--accent)]"
+                        : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <label htmlFor={`imap-user-${mailbox.id}`} className="fg-3 mono-xs block">
+                USERNAME
+              </label>
+              <input
+                id={`imap-user-${mailbox.id}`}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={address}
+                className="field text-sm"
+                autoComplete="off"
+                aria-label="IMAP username"
+              />
+              <p className="fg-3 text-xs leading-relaxed">
+                With server settings open we use exactly these — no fallback.
+                Close this panel to let us find a working server for you.
+              </p>
+            </div>
           )}
+
+          {probe && <ImapProbeReport result={probe} onUseOauth={() => oauth(
+            plan?.provider.id === "google" ? "google" : "microsoft",
+          )} oauthAvailable={isMs || isGoogle} />}
         </div>
       )}
 
@@ -962,10 +1160,6 @@ function BulkImapConnect({
   const withPw = mailboxes.filter((m) => (pw[m.id] ?? "").trim().length > 0);
 
   async function connectAll() {
-    if (!host) {
-      setNote("Enter the IMAP server first.");
-      return;
-    }
     if (withPw.length === 0) {
       setNote("Enter the app-password for at least one mailbox.");
       return;
@@ -975,14 +1169,18 @@ function BulkImapConnect({
     const next: Record<string, { ok: boolean; msg: string }> = {};
     for (const m of withPw) {
       try {
-        await api.connectImap(m.id, {
-          imap_host: host,
-          imap_port: port,
-          security,
+        // The shared server is a starting point, not a constraint: each mailbox
+        // falls back to its own discovered settings if this one doesn't answer,
+        // so one wrong shared guess no longer fails the whole batch.
+        const r = await api.connectImap(m.id, {
+          ...(host ? { imap_host: host, imap_port: port, security } : {}),
           username: m.address,
           password: pw[m.id].trim(),
         });
-        next[m.id] = { ok: true, msg: "connected" };
+        next[m.id] = {
+          ok: true,
+          msg: r.imap ? `connected · ${r.imap.host}:${r.imap.port}` : "connected",
+        };
       } catch (e) {
         next[m.id] = {
           ok: false,
@@ -992,6 +1190,11 @@ function BulkImapConnect({
     }
     setResults(next);
     setBusy(false);
+    const ok = Object.values(next).filter((r) => r.ok).length;
+    const failed = Object.values(next).length - ok;
+    if (failed === 0) toast.success(`Connected ${ok} mailbox${ok === 1 ? "" : "es"}.`);
+    else if (ok === 0) toast.error(`None connected — ${failed} failed. See the reasons below.`);
+    else toast.info(`Connected ${ok}; ${failed} failed. See the reasons below.`);
     await onDone();
   }
 
@@ -1025,7 +1228,7 @@ function BulkImapConnect({
           <input
             value={host}
             onChange={(e) => setHost(e.target.value)}
-            placeholder="imap.yourprovider.com"
+            placeholder="detected automatically"
             className="field flex-1 text-sm"
             autoComplete="off"
             aria-label="IMAP host"
@@ -2074,14 +2277,30 @@ export default function Dashboard() {
     await load();
   }
 
-  async function removeMailbox(id: string) {
-    if (!window.confirm("Remove this mailbox and its stored credential?"))
-      return;
+  // Two-step, because this deletes a stored credential and stops protection for
+  // that address — a `window.confirm` is the control users dismiss reflexively.
+  const [pendingRemoval, setPendingRemoval] = useState<MailboxRecord | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  function removeMailbox(id: string) {
+    setPendingRemoval(mailboxes.find((m) => m.id === id) ?? null);
+  }
+
+  async function confirmRemoveMailbox() {
+    const target = pendingRemoval;
+    if (!target) return;
+    setRemoving(true);
     try {
-      await api.removeMailbox(id);
+      await api.removeMailbox(target.id);
+      setPendingRemoval(null);
+      toast.success(`${target.address} removed. Its stored credential was deleted.`);
       await load();
-    } catch {
-      /* surfaced by the queue error banner on next load */
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError ? e.message : "Could not remove that mailbox.",
+      );
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -2536,6 +2755,22 @@ export default function Dashboard() {
           )}
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title="Remove this mailbox?"
+        body={
+          pendingRemoval
+            ? `${pendingRemoval.address} will stop being scanned and its stored ` +
+              "credential is deleted. Alerts already raised are kept. You can " +
+              "add and reconnect it again later."
+            : ""
+        }
+        confirmLabel="REMOVE MAILBOX"
+        busy={removing}
+        onConfirm={() => void confirmRemoveMailbox()}
+        onCancel={() => setPendingRemoval(null)}
+      />
     </main>
   );
 }

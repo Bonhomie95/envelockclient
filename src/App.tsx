@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import {
   Link,
   NavLink,
+  Navigate,
   Outlet,
   Route,
   Routes,
@@ -10,6 +11,7 @@ import {
 } from "react-router-dom";
 import {
   LayoutDashboard,
+  Loader2,
   LogOut,
   Menu,
   Moon,
@@ -20,15 +22,10 @@ import {
 } from "lucide-react";
 import { api, auth } from "./lib/api";
 import { Button, cn } from "./components/primitives";
+import Toaster from "./components/Toaster";
 import Landing from "./pages/Landing";
-import Dashboard from "./pages/Dashboard";
-import Analyse from "./pages/Analyse";
-import Docs from "./pages/Docs";
 import SignIn from "./pages/SignIn";
 import ResetPassword from "./pages/ResetPassword";
-import Profile from "./pages/Profile";
-import Team from "./pages/Team";
-import Billing from "./pages/Billing";
 
 function Mark({ size = 26 }: { size?: number }) {
   return (
@@ -64,10 +61,30 @@ function Logo() {
   );
 }
 
+const THEME_KEY = "envelock.theme";
+
+/** The stored choice, else the operating system's. Reading this at module load
+ *  (not in an effect) means the first paint is already the right theme instead
+ *  of flashing dark and correcting itself. */
+function initialTheme(): boolean {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "dark" || stored === "light") return stored === "dark";
+  } catch {
+    /* private mode / storage disabled — fall through to the OS preference */
+  }
+  return !window.matchMedia?.("(prefers-color-scheme: light)").matches;
+}
+
 function ThemeToggle() {
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(initialTheme);
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
+    try {
+      localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+    } catch {
+      /* not being able to remember the theme must never break the page */
+    }
   }, [dark]);
   return (
     <button
@@ -227,11 +244,11 @@ function Header() {
                 >
                   <UserRound size={14} aria-hidden /> Profile
                 </NavLink>
-                <button onClick={signOut} className="py-4 text-left">
-                  <Button variant="line" className="w-full">
+                <div className="py-4">
+                  <Button variant="line" className="w-full" onClick={signOut}>
                     <LogOut size={13} aria-hidden /> SIGN OUT
                   </Button>
-                </button>
+                </div>
               </>
             ) : (
               <Link to="/signin" className="py-4">
@@ -521,6 +538,60 @@ function AppLayout() {
   );
 }
 
+/* Console routes are for signed-in people. Without this the pages mounted for
+   anyone, fired their API calls, took 401s and left the visitor on a broken
+   half-rendered dashboard instead of the sign-in screen. `replace` keeps Back
+   working: it returns to wherever they came from, not into a redirect loop.
+   `from` lets sign-in send them on to what they originally asked for. */
+function RequireAuth({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  if (!auth.signedIn) {
+    return <Navigate to="/signin" replace state={{ from: location.pathname }} />;
+  }
+  return <>{children}</>;
+}
+
+/* Any unknown path used to render a blank page under the header — the worst
+   possible answer, because it looks like the app crashed. */
+function NotFound() {
+  return (
+    <section className="shell py-24 sm:py-32">
+      <p className="fg-3 mono-xs">ERROR 404</p>
+      <h1 className="headline mt-4">This page doesn&rsquo;t exist.</h1>
+      <p className="lede mt-5">
+        The link may be out of date, or the address mistyped.
+      </p>
+      <div className="mt-8 flex flex-wrap gap-2">
+        <Link to="/">
+          <Button variant="accent">GO TO HOMEPAGE</Button>
+        </Link>
+        <Link to="/docs">
+          <Button variant="line">READ THE DOCS</Button>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+/* Lazy routes only render for people who navigate to them. Before this the
+   marketing page shipped the whole 2,500-line console to every first-time
+   visitor, on whatever connection they happened to be on. */
+const LazyDashboard = lazy(() => import("./pages/Dashboard"));
+const LazyTeam = lazy(() => import("./pages/Team"));
+const LazyBilling = lazy(() => import("./pages/Billing"));
+const LazyProfile = lazy(() => import("./pages/Profile"));
+const LazyDocs = lazy(() => import("./pages/Docs"));
+const LazyAnalyse = lazy(() => import("./pages/Analyse"));
+
+function RouteFallback() {
+  return (
+    <div className="shell flex items-center gap-2 py-24" role="status">
+      <Loader2 size={16} className="animate-spin" aria-hidden />
+      <span className="fg-3 mono-xs">LOADING…</span>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <div id="top" className="flex min-h-dvh flex-col">
@@ -531,21 +602,55 @@ export default function App() {
         Skip to main content
       </a>
       <ScrollToTop />
-      <Routes>
-        <Route element={<MarketingLayout />}>
-          <Route path="/" element={<Landing />} />
-          <Route path="/analyse" element={<Analyse />} />
-          <Route path="/docs" element={<Docs />} />
-          <Route path="/signin" element={<SignIn />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-        </Route>
-        <Route element={<AppLayout />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/team" element={<Team />} />
-          <Route path="/billing" element={<Billing />} />
-          <Route path="/profile" element={<Profile />} />
-        </Route>
-      </Routes>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route element={<MarketingLayout />}>
+            <Route path="/" element={<Landing />} />
+            <Route path="/analyse" element={<LazyAnalyse />} />
+            <Route path="/docs" element={<LazyDocs />} />
+            <Route path="/signin" element={<SignIn />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+          </Route>
+          <Route element={<AppLayout />}>
+            <Route
+              path="/dashboard"
+              element={
+                <RequireAuth>
+                  <LazyDashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/team"
+              element={
+                <RequireAuth>
+                  <LazyTeam />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/billing"
+              element={
+                <RequireAuth>
+                  <LazyBilling />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <RequireAuth>
+                  <LazyProfile />
+                </RequireAuth>
+              }
+            />
+          </Route>
+          <Route element={<MarketingLayout />}>
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </Suspense>
+      <Toaster />
     </div>
   );
 }

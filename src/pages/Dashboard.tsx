@@ -133,15 +133,22 @@ function AlertRow({
     }
   }
 
+  // A short, stable handle for the alert. Support conversations happen over the
+  // phone while someone is looking at this screen, and "the second one down" is
+  // not something either side can act on.
+  const reference = `ENV-${alert.id.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+
   return (
     <article
       className={cn(
-        "p-6 transition-colors hover:bg-[var(--bg-hover)]",
-        acked && "opacity-50",
+        "alertcard p-5 sm:p-6",
+        `tier-${alert.tier}`,
+        acked && "opacity-55",
       )}
     >
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2.5">
         <TierChip tier={alert.tier} blink={!acked} />
+        <span className="mono-xs fg-3 tnum">{reference}</span>
         <span className="mono-xs fg-3 ml-auto tnum">
           {timeOf(alert.created_at)}
         </span>
@@ -303,6 +310,65 @@ function AppPasswordNotice() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* The one number that answers "is my email actually being protected?".
+ *
+ * Deliberately counts CONNECTED mailboxes, not added ones: an address that has
+ * been typed in but never connected protects nothing, and a figure that counted
+ * it would be the flattering-but-false state this product exists to avoid. The
+ * label says exactly what is being divided by what, so the percentage cannot be
+ * mistaken for a security score. */
+function CoverageSummary({ mailboxes }: { mailboxes: MailboxRecord[] }) {
+  const connected = mailboxes.filter((m) =>
+    m.sources.some((s) => MAIL_SOURCES.has(s)),
+  );
+  const full = connected.filter((m) => m.protection_level === "full").length;
+  const ratio = mailboxes.length
+    ? Math.round((connected.length / mailboxes.length) * 100)
+    : 0;
+  const needsAttention = mailboxes.filter((m) => m.needs_reconnect).length;
+
+  return (
+    <div className="panel p-5">
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="sect-label">Coverage</h2>
+        <a href="#coverage" className="fg-3 mono-xs hover:text-[var(--fg)]">
+          DETAIL →
+        </a>
+      </div>
+
+      <div className="mt-3 flex items-baseline gap-1.5">
+        <span className="stat-figure is-accent">{ratio}</span>
+        <span className="fg-3 font-mono text-lg">%</span>
+      </div>
+      <p className="fg-3 mono-xs mt-1.5">
+        {connected.length} OF {mailboxes.length} MAILBOXES CONNECTED
+      </p>
+      <div className="meter mt-3" role="img" aria-label={`${ratio} per cent of mailboxes connected`}>
+        <span style={{ width: `${ratio}%` }} />
+      </div>
+
+      <dl className="mt-4 space-y-2 border-t pt-4 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="fg-2">Full protection</dt>
+          <dd className="font-mono tnum">{full}</dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="fg-2">Alert-only</dt>
+          <dd className="font-mono tnum">{connected.length - full}</dd>
+        </div>
+        {needsAttention > 0 && (
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-[var(--danger)]">Needs reconnecting</dt>
+            <dd className="font-mono tnum text-[var(--danger)]">
+              {needsAttention}
+            </dd>
+          </div>
+        )}
+      </dl>
     </div>
   );
 }
@@ -2402,48 +2468,47 @@ export default function Dashboard() {
 
   return (
     <main>
-      <div className="border-b">
-        <div className="shell flex flex-wrap items-center gap-x-8 gap-y-4 py-5">
-          <div>
-            <span className="sect-label">
+      <div className="shell pt-5">
+        {/* Identity on the left, the four numbers that matter on the right. The
+            cells are hairline-separated rather than spaced so the row reads as
+            one instrument panel, not four floating cards. */}
+        <div className="statstrip grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="stat-cell col-span-2 flex flex-col justify-center sm:col-span-3 lg:col-span-1">
+            <span className="sect-label truncate">
               {tenant?.name && tenant.name !== domain ? tenant.name : "Tenant"}
             </span>
-            <div className="mt-1 flex items-center gap-2.5">
-              <p className="text-sm font-semibold">{domain}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <p className="truncate text-sm font-semibold">{domain}</p>
               {tenant && <PlanBadge tenant={tenant} />}
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-8">
-            {[
-              ["OPEN", String(open.length), critical > 0],
-              ["CRITICAL", String(critical), critical > 0],
-              ["MAILBOXES", String(mailboxes.length), false],
-              ["DOMAINS", String(domainCount), false],
-            ].map(([label, value, hot]) => (
-              <div key={label as string}>
-                <div
-                  className={cn(
-                    "font-mono tnum text-2xl font-semibold",
-                    hot && "text-[var(--danger)]",
-                  )}
-                >
-                  {value}
-                </div>
-                <div className="sect-label mt-1">{label}</div>
-              </div>
-            ))}
-            <button
-              onClick={() => void load()}
-              aria-label="Refresh"
-              className="fg-3 cursor-pointer p-2 transition-colors hover:text-[var(--fg)]"
-            >
-              <RefreshCw
-                size={15}
-                className={cn(loading && "animate-spin")}
-                aria-hidden
-              />
-            </button>
-          </div>
+          {(
+            [
+              ["OPEN", String(open.length), open.length > 0 ? "is-warn" : "is-quiet"],
+              ["CRITICAL", String(critical), critical > 0 ? "is-hot" : "is-quiet"],
+              ["MAILBOXES", String(mailboxes.length), "is-quiet"],
+              ["DOMAINS", String(domainCount), "is-quiet"],
+            ] as const
+          ).map(([label, value, tone]) => (
+            <div key={label} className="stat-cell">
+              <div className="sect-label">{label}</div>
+              <div className={cn("stat-figure mt-2", tone)}>{value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 flex items-center justify-end">
+          <button
+            onClick={() => void load()}
+            aria-label="Refresh"
+            className="fg-3 mono-xs flex cursor-pointer items-center gap-1.5 p-2 transition-colors hover:text-[var(--fg)]"
+          >
+            <RefreshCw
+              size={13}
+              className={cn(loading && "animate-spin")}
+              aria-hidden
+            />
+            REFRESH
+          </button>
         </div>
       </div>
 
@@ -2570,64 +2635,73 @@ export default function Dashboard() {
 
       <div className="shell grid12 py-8">
         <section className="col-span-12 lg:col-span-8">
-          <div className="panel">
-            <div className="flex items-center justify-between border-b px-6 py-3.5">
-              <h2 className="sect-label">Alert queue</h2>
-              <div
-                className="flex gap-px"
-                role="group"
-                aria-label="Filter alerts"
-              >
-                {(["open", "all"] as const).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setFilter(f)}
-                    aria-pressed={filter === f}
-                    className={cn(
-                      "font-mono cursor-pointer border px-3 py-1.5 text-[11px] tracking-wide uppercase transition-colors",
-                      filter === f
-                        ? "accent border-[var(--accent)]"
-                        : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
-                    )}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="divide-y">
-              {loading && alerts.length === 0 ? (
-                <p className="fg-3 p-12 text-center text-sm">Loading…</p>
-              ) : shown.length === 0 ? (
-                <div className="p-12 text-center">
-                  <p className="text-sm font-semibold">
-                    {filter === "all" ? "No alerts yet." : "Nothing open."}
-                  </p>
-                  <p className="fg-3 mx-auto mt-2 max-w-md text-sm leading-relaxed">
-                    This is your alert queue. When Envelock spots invoice fraud,
-                    a lookalike domain, or an account takeover in a connected
-                    mailbox, it appears here with the action to take — verify,
-                    quarantine or dismiss. An empty queue means nothing needs
-                    you right now; quiet is the correct state.
-                  </p>
-                </div>
-              ) : (
-                shown.map((a) => (
-                  <AlertRow
-                    key={a.id}
-                    alert={a}
-                    onAcknowledge={acknowledge}
-                    onQuarantine={quarantine}
-                    onResolve={resolve}
-                  />
-                ))
+          {/* The queue header is a ruled label rather than a panel lid: each
+              alert is now its own bordered card carrying a tier bar, and
+              nesting cards inside a panel gave every alert two competing
+              borders. */}
+          <div className="ruled-label">
+            <h2 className="sect-label">
+              Alert queue
+              {shown.length > 0 && (
+                <span className="fg-3 tnum ml-2 normal-case">
+                  {shown.length}
+                </span>
               )}
+            </h2>
+            <div className="flex gap-px" role="group" aria-label="Filter alerts">
+              {(["open", "all"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  aria-pressed={filter === f}
+                  className={cn(
+                    "font-mono cursor-pointer border px-3 py-1.5 text-[11px] tracking-wide uppercase transition-colors",
+                    filter === f
+                      ? "accent border-[var(--accent)]"
+                      : "fg-3 border-[var(--rule)] hover:text-[var(--fg)]",
+                  )}
+                >
+                  {f}
+                </button>
+              ))}
             </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {loading && alerts.length === 0 ? (
+              <div className="panel p-12 text-center">
+                <p className="fg-3 text-sm">Loading…</p>
+              </div>
+            ) : shown.length === 0 ? (
+              <div className="panel p-12 text-center">
+                <p className="text-sm font-semibold">
+                  {filter === "all" ? "No alerts yet." : "Nothing open."}
+                </p>
+                <p className="fg-3 mx-auto mt-2 max-w-md text-sm leading-relaxed">
+                  This is your alert queue. When Envelock spots invoice fraud, a
+                  lookalike domain, or an account takeover in a connected
+                  mailbox, it appears here with the action to take — verify,
+                  quarantine or dismiss. An empty queue means nothing needs you
+                  right now; quiet is the correct state.
+                </p>
+              </div>
+            ) : (
+              shown.map((a) => (
+                <AlertRow
+                  key={a.id}
+                  alert={a}
+                  onAcknowledge={acknowledge}
+                  onQuarantine={quarantine}
+                  onResolve={resolve}
+                />
+              ))
+            )}
           </div>
         </section>
 
         <aside className="col-span-12 mt-6 space-y-6 lg:col-span-4 lg:mt-0">
+          {mailboxes.length > 0 && <CoverageSummary mailboxes={mailboxes} />}
+
           {tenant && me && (
             <OnboardingChecklist
               connectedCount={

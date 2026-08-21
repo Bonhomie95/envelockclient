@@ -263,13 +263,24 @@ export default function Landing() {
             title="Three ways businesses lose money to email."
           />
 
-          <div className="mt-12 grid gap-px bg-[var(--rule)] md:grid-cols-3">
-            {PROBLEMS.map((p) => {
+          {/* Numbered and ruled rather than boxed. The index gives the set an
+              order to read in, and the hairline under each label does the
+              separating a card border would otherwise do — which keeps three
+              long paragraphs from reading as three heavy blocks. */}
+          <div className="mt-12 grid gap-x-8 gap-y-12 md:grid-cols-3">
+            {PROBLEMS.map((p, i) => {
               const Icon = p.icon;
               return (
-                <article key={p.title} className="bg-[var(--bg-raised)] p-8">
-                  <Icon size={20} className="accent" aria-hidden />
-                  <h3 className="mt-6 text-base font-semibold text-balance">{p.title}</h3>
+                <article key={p.title}>
+                  <div className="flex items-end justify-between gap-3 border-b border-[var(--rule-strong)] pb-2.5">
+                    <span className="sect-label">
+                      Vector {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <Icon size={17} className="accent shrink-0" aria-hidden />
+                  </div>
+                  <h3 className="mt-5 text-base font-semibold text-balance">
+                    {p.title}
+                  </h3>
                   <p className="fg-2 mt-3 text-sm leading-relaxed">{p.body}</p>
                 </article>
               );

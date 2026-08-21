@@ -10,6 +10,9 @@ import {
   useNavigate,
 } from "react-router-dom";
 import {
+  BookOpen,
+  CreditCard,
+  FlaskConical,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -22,6 +25,7 @@ import {
 } from "lucide-react";
 import { api, auth } from "./lib/api";
 import { Button, cn } from "./components/primitives";
+import ConsoleShell from "./components/ConsoleShell";
 import Toaster from "./components/Toaster";
 import Landing from "./pages/Landing";
 import SignIn from "./pages/SignIn";
@@ -394,18 +398,20 @@ function MarketingLayout() {
 const APP_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
   { to: "/team", label: "Team", icon: Users, adminOnly: true },
+  { to: "/billing", label: "Billing", icon: CreditCard, adminOnly: true },
   { to: "/profile", label: "Profile", icon: UserRound, adminOnly: false },
+  { to: "/analyse", label: "Sandbox", icon: FlaskConical, adminOnly: false },
+  { to: "/docs", label: "Documentation", icon: BookOpen, adminOnly: false },
 ];
 
-function AppHeader() {
+function AppLayout() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const signedIn = auth.signedIn;
   const isAdmin = auth.role === "owner" || auth.role === "admin";
-  const nav = APP_NAV.filter((i) => !i.adminOnly || isAdmin);
 
   // Show admins how many colleagues are waiting for approval, right on the Team
-  // tab — the other half of the dashboard's "Waiting for approval" screen.
+  // item — the other half of the dashboard's "Waiting for approval" screen.
   // Re-checked on navigation, and immediately when the Team page approves or
   // removes someone (via a lightweight window event) so the badge never lags.
   const [pending, setPending] = useState(0);
@@ -441,100 +447,22 @@ function AppHeader() {
     navigate("/");
   }
 
+  const items = APP_NAV.filter((i) => !i.adminOnly || isAdmin).map((i) => ({
+    to: i.to,
+    label: i.label,
+    icon: i.icon,
+    badge: i.to === "/team" ? pending : undefined,
+  }));
+
   return (
-    <header className="sticky top-0 z-50 border-b bg-[var(--bg-raised)]">
-      <div className="shell flex h-14 items-center gap-3 sm:gap-5">
-        <Link
-          to={signedIn ? "/dashboard" : "/"}
-          className="flex items-center gap-2.5"
-          aria-label="Envelock console"
-        >
-          <Mark size={23} />
-          <span className="text-[15px] font-bold tracking-tight">ENVELOCK</span>
-          <span className="mono-xs fg-3 ml-0.5 hidden border-l pl-2.5 md:inline">
-            CONSOLE
-          </span>
-        </Link>
-
-        {signedIn && (
-          <nav
-            className="-mx-1 flex items-center gap-0.5 overflow-x-auto"
-            aria-label="Console"
-          >
-            {nav.map(({ to, label, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
-                    isActive ? "accent" : "fg-2 hover:text-[var(--fg)]",
-                  )
-                }
-              >
-                <Icon size={15} aria-hidden />
-                <span className="hidden sm:inline">{label}</span>
-                {to === "/team" && pending > 0 && (
-                  <span
-                    className="font-mono ml-0.5 grid min-w-4 place-items-center rounded-full bg-[var(--accent)] px-1 text-[10px] font-semibold text-[var(--accent-ink)]"
-                    aria-label={`${pending} awaiting approval`}
-                  >
-                    {pending}
-                  </span>
-                )}
-              </NavLink>
-            ))}
-          </nav>
-        )}
-
-        <div className="ml-auto flex items-center gap-1">
-          <ThemeToggle />
-          {signedIn ? (
-            <Button variant="line" size="sm" onClick={signOut}>
-              <LogOut size={13} aria-hidden />
-              <span className="hidden sm:inline">SIGN OUT</span>
-            </Button>
-          ) : (
-            <Link to="/signin">
-              <Button variant="line" size="sm">
-                SIGN IN
-              </Button>
-            </Link>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function AppFooter() {
-  return (
-    <footer className="border-t">
-      <div className="shell flex items-center gap-4 py-4">
-        <p className="fg-3 mono-xs">
-          © {new Date().getFullYear()} ENVELOCK
-        </p>
-        <span className="fg-3 mono-xs ml-auto flex items-center gap-1.5">
-          <span
-            className="size-1.5 rounded-full bg-[var(--ok)]"
-            aria-hidden
-          />
-          SECURE SESSION
-        </span>
-      </div>
-    </footer>
-  );
-}
-
-function AppLayout() {
-  return (
-    <>
-      <AppHeader />
-      <div id="main" className="flex-1">
-        <Outlet />
-      </div>
-      <AppFooter />
-    </>
+    <ConsoleShell
+      items={items}
+      subtitle="Console"
+      actions={<ThemeToggle />}
+      onSignOut={() => void signOut()}
+    >
+      <Outlet />
+    </ConsoleShell>
   );
 }
 
@@ -606,10 +534,16 @@ export default function App() {
         <Routes>
           <Route element={<MarketingLayout />}>
             <Route path="/" element={<Landing />} />
-            <Route path="/analyse" element={<LazyAnalyse />} />
-            <Route path="/docs" element={<LazyDocs />} />
             <Route path="/signin" element={<SignIn />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+          </Route>
+
+          {/* The sandbox and the docs are public, but a signed-in person reaching
+              them from the console rail should not be thrown back out to the
+              marketing chrome. Same URLs, chrome chosen by who is asking. */}
+          <Route element={auth.signedIn ? <AppLayout /> : <MarketingLayout />}>
+            <Route path="/analyse" element={<LazyAnalyse />} />
+            <Route path="/docs" element={<LazyDocs />} />
           </Route>
           <Route element={<AppLayout />}>
             <Route

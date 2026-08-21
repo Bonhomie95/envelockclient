@@ -290,15 +290,19 @@ export const auth = {
   },
 };
 
-// Where the backend actually lives. In production the client is served from a
-// different origin (Vercel) than the API (Render), so a relative "/api/..." URL
-// would call the static host itself (that is the 500 you saw). Target the API's
-// absolute origin instead. Override at build time with VITE_API_BASE_URL; falls
-// back to the Render backend in a production build, and to same-origin (the Vite
-// dev proxy) in development.
+// Where the backend actually lives.
+//
+// Set VITE_API_BASE_URL at BUILD time when the client is served from a different
+// origin than the API (e.g. a static host in front of a separate API host); the
+// value is baked into the bundle. Leave it unset and every call is same-origin,
+// which is what you want when one web server serves the app and proxies /api to
+// the backend — and what the Vite dev proxy does locally.
+//
+// Deliberately no hardcoded fallback host: a wrong-but-plausible default meant a
+// build with a missing env file silently pointed a customer's dashboard at
+// somebody else's backend. Same-origin fails loudly and locally instead.
 export const API_BASE = (
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-  (import.meta.env.PROD ? "https://envelockserver.onrender.com" : "")
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ""
 ).replace(/\/+$/, "");
 
 /** Prefix an "/api/..." path with the backend origin. */

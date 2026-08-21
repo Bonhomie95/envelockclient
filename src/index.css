@@ -30,16 +30,31 @@
 
 :root {
   color-scheme: dark;
-  --bg: #08090b;
-  --bg-raised: #0f1216;
-  --bg-hover: #171b20;
+  /* Carbon, warmed slightly toward blue — the deep tone reads as instrument
+     housing rather than pure black, which on an OLED panel looks like a hole. */
+  --bg-deep: #090f15;
+  --bg: #0f141a;
+  --bg-raised: #171c23;
+  --bg-hover: #1e242c;
   --rule: #23282f;
   --rule-strong: #363d47;
   --fg: #f2f4f7;
   --fg-2: #9aa4b2;
   --fg-3: #616b7a;
+
+  /* Two weights of one accent, and they are not interchangeable:
+     --accent is the ACTION colour (buttons, the active nav item). Keeping it
+     scarce is what makes a primary button read as the primary button.
+     --accent-soft is the EMPHASIS colour, for display numerals and headings.
+     Signal orange at 56px on a dark panel is a shout; this is the same hue with
+     the volume down, and it clears 4.5:1 where the solid tone does not. */
   --accent: #ff5c1a;
+  --accent-soft: #ffb59d;
   --accent-ink: #ffffff;
+  /* Active nav / selected row wash. Mixed rather than hardcoded so it tracks
+     the accent if the brand ever shifts. */
+  --accent-wash: color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-wash-strong: color-mix(in oklab, var(--accent) 26%, transparent);
 
   --ok: #34d399;
   --warn: #fbbf24;
@@ -49,6 +64,7 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
+  --bg-deep: #f4f4f5;
   --bg: #ffffff;
   --bg-raised: #fafafa;
   --bg-hover: #f4f4f5;
@@ -58,7 +74,12 @@
   --fg-2: #52525b;
   --fg-3: #71717a;
   --accent: #e0450f;
+  /* On white, "soft" has to go DARKER, not lighter: the dark theme's salmon is
+     invisible here. Same role, inverted direction. */
+  --accent-soft: #9a2c06;
   --accent-ink: #ffffff;
+  --accent-wash: color-mix(in oklab, var(--accent) 9%, transparent);
+  --accent-wash-strong: color-mix(in oklab, var(--accent) 16%, transparent);
 
   --ok: #047857;
   --warn: #a16207;
@@ -338,6 +359,178 @@
   :root[data-theme="light"] .chip-info {
     color: #9a3412;
     border-color: var(--rule-strong);
+  }
+
+  /* ── Console shell ────────────────────────────────────────────────────────
+     A persistent left rail rather than a top bar. The console has seven
+     destinations and a top bar was already overflowing into a scroll strip on a
+     laptop; a rail holds them all at full label width, keeps the active one
+     obvious, and gives back the vertical space the content actually wants.
+     Below `lg` it becomes an off-canvas drawer — see `.rail-drawer`.          */
+  .rail {
+    width: 15rem;
+    flex-shrink: 0;
+    background: var(--bg-raised);
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rail-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    /* 44px tall: this is a touch target inside the mobile drawer too. */
+    height: 2.75rem;
+    padding-inline: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--fg-2);
+    /* The 2px inset marks the active item without shifting anything: a border
+       that appears on selection would nudge every label one pixel right. */
+    box-shadow: inset 2px 0 0 transparent;
+    transition:
+      background-color 160ms,
+      color 160ms,
+      box-shadow 160ms;
+  }
+  .rail-link:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+  .rail-link[aria-current="page"] {
+    background: var(--accent-wash);
+    color: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  /* ── Bento stat strip ────────────────────────────────────────────────────
+     Cells separated by hairlines rather than gaps, so a row of figures reads as
+     one instrument panel instead of four floating cards.                      */
+  .statstrip {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .stat-cell {
+    background: var(--bg-raised);
+    padding: 1rem 1.25rem;
+  }
+  .stat-figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+  }
+  /* State colours for a figure. Colour alone never carries the meaning — the
+     label above it always names what is being counted. */
+  .stat-figure.is-quiet { color: var(--fg); }
+  .stat-figure.is-hot { color: var(--danger); }
+  .stat-figure.is-warn { color: var(--warn); }
+  .stat-figure.is-good { color: var(--ok); }
+  .stat-figure.is-accent { color: var(--accent-soft); }
+
+  /* ── Alert card ──────────────────────────────────────────────────────────
+     The most important object in the product. The left bar carries the tier at
+     a glance from across a room, and thickens for Critical.                   */
+  .alertcard {
+    background: var(--bg-raised);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-strong);
+    transition: border-color 160ms;
+  }
+  .alertcard:hover {
+    border-color: var(--rule-strong);
+  }
+  .alertcard.tier-critical {
+    border-left-color: var(--danger);
+    border-left-width: 4px;
+  }
+  .alertcard.tier-high { border-left-color: var(--alarm); }
+  .alertcard.tier-medium { border-left-color: var(--warn); }
+  .alertcard.tier-low { border-left-color: var(--rule-strong); }
+
+  /* The quoted proof inside an alert. Monospaced and inset so the customer can
+     see the actual changed IBAN rather than our paraphrase of it. */
+  .evidence {
+    background: var(--bg-deep);
+    border: 1px solid var(--rule);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.7;
+    padding: 0.75rem 0.875rem;
+    overflow-x: auto;
+  }
+
+  /* ── Data table ──────────────────────────────────────────────────────────
+     Operator surfaces are tabular. Header in mono small-caps, rows separated by
+     hairlines, and a remediation column that hangs off a left rule so the eye
+     can run down "what do I do" without reading the descriptions.             */
+  .dtable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+  .dtable th {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--fg-3);
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .dtable td {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  .dtable tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .dtable tbody tr:hover td {
+    background: var(--bg-hover);
+  }
+
+  .remedy {
+    border-left: 2px solid var(--rule-strong);
+    padding-left: 0.75rem;
+    color: var(--fg-2);
+    font-size: 0.75rem;
+    line-height: 1.6;
+  }
+  .remedy.is-actionable {
+    border-left-color: var(--accent);
+    color: var(--fg);
+  }
+
+  /* ── Section label with a hairline, as on the landing page ───────────────── */
+  .ruled-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+
+  /* A thin measure of progress. Not a "score" — it is always labelled with what
+     it counts, because a bare percentage invites arguing with the percentage. */
+  .meter {
+    height: 3px;
+    background: var(--rule);
+    overflow: hidden;
+  }
+  .meter > span {
+    display: block;
+    height: 100%;
+    background: var(--accent-soft);
   }
 
   /* Callback prompt — the step that stops the loss, legible in both themes */

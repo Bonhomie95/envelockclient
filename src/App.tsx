@@ -355,11 +355,22 @@ function Footer() {
           <p className="fg-3 mono-xs">
             © {new Date().getFullYear()} ENVELOCK — ALL RIGHTS RESERVED
           </p>
-          <div className="fg-3 mono-xs flex gap-6 sm:ml-auto">
-            <span>PRIVACY</span>
-            <span>TERMS</span>
-            <span>DPA</span>
-            <span>STATUS</span>
+          {/* These were four dead <span>s. A footer that looks like it has legal
+              pages and does not is worse than one that links what actually
+              exists — so they point at the documentation sections that answer
+              the same questions, and the ones with no answer yet are simply not
+              claimed. Add real /privacy, /terms and /dpa routes here when the
+              documents exist; do not link placeholders. */}
+          <div className="fg-3 mono-xs flex flex-wrap gap-x-6 gap-y-2 sm:ml-auto">
+            <Link to="/docs#data" className="transition-colors hover:text-[var(--fg)]">
+              DATA HANDLING
+            </Link>
+            <Link to="/docs#security" className="transition-colors hover:text-[var(--fg)]">
+              SECURITY
+            </Link>
+            <Link to="/docs#api" className="transition-colors hover:text-[var(--fg)]">
+              API
+            </Link>
           </div>
         </div>
       </div>

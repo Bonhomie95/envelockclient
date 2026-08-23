@@ -1,18 +1,26 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { CheckCircle2, KeyRound, Loader2, Mail } from "lucide-react";
+import { CheckCircle2, KeyRound, Loader2, Mail, ShieldAlert } from "lucide-react";
 import { ApiError, api } from "../lib/api";
 import { Button } from "../components/primitives";
 
 /**
- * Password reset — the "Forgot password?" destination and the target of the
- * emailed reset link.
+ * Password reset.
  *
- *  - Arriving with `?token=…` (the emailed link): just set a new password.
- *  - Arriving without a token: enter your email. An account with MFA resets in
- *    place with its authenticator code; an account without MFA is emailed a link.
+ * Two routes in, because a deployment without an SMTP relay must not be a dead
+ * end — which is exactly what it was: the server always answered "a link has
+ * been sent", nothing was ever sent, and there was no other way through.
+ *
+ *  - **Emailed link** (`?token=…`): set a new password, plus an authenticator
+ *    code if the account has one.
+ *  - **Authenticator only**: email + code + new password, no link involved. The
+ *    server hands out nothing here, so it is safe to offer to everyone.
+ *
+ * The "does this account exist" question is never answered either way. What the
+ * page does say is whether email delivery works at all, which is a property of
+ * the deployment, not of the account.
  */
-type Phase = "enter-email" | "set-new" | "mfa-reset" | "email-sent" | "done";
+type Phase = "enter-email" | "set-new" | "code-reset" | "email-sent" | "done";
 
 export default function ResetPassword() {
   const [params] = useSearchParams();
@@ -21,10 +29,11 @@ export default function ResetPassword() {
 
   const [phase, setPhase] = useState<Phase>(linkToken ? "set-new" : "enter-email");
   const [email, setEmail] = useState("");
-  const [resetToken, setResetToken] = useState(linkToken ?? "");
   const [code, setCode] = useState("");
   const [newPass, setNewPass] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
   const [devLink, setDevLink] = useState<string | null>(null);
+  const [emailWorks, setEmailWorks] = useState(true);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,13 +48,13 @@ export default function ResetPassword() {
     setError(null);
     try {
       const r = await api.forgotPassword(email.trim().toLowerCase());
-      if (r.method === "mfa" && r.reset_token) {
-        setResetToken(r.reset_token);
-        setPhase("mfa-reset");
-      } else {
-        setDevLink(r.reset_link ?? null);
-        setPhase("email-sent");
-      }
+      setNotice(r.message);
+      setDevLink(r.reset_link ?? null);
+      const canEmail = r.email_delivery === "available";
+      setEmailWorks(canEmail);
+      // With no relay, sending the customer to "check your email" is a lie.
+      // Put them straight on the path that actually works.
+      setPhase(canEmail ? "email-sent" : "code-reset");
     } catch (e) {
       fail(e);
     } finally {
@@ -53,15 +62,36 @@ export default function ResetPassword() {
     }
   }
 
-  async function submitNewPassword(e: FormEvent, withCode: boolean) {
+  async function submitFromLink(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
       await api.resetPassword({
-        token: resetToken,
+        token: linkToken ?? "",
         new_password: newPass,
-        ...(withCode ? { code } : {}),
+        // Sent only when supplied: the server requires it for an account with an
+        // authenticator and ignores it otherwise, and the page cannot know which
+        // this is without asking the server to tell it — which would leak.
+        ...(code.trim() ? { code: code.trim() } : {}),
+      });
+      setPhase("done");
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitWithCode(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.resetPasswordWithCode({
+        email: email.trim().toLowerCase(),
+        code: code.trim(),
+        new_password: newPass,
       });
       setPhase("done");
     } catch (e) {
@@ -88,17 +118,21 @@ export default function ResetPassword() {
         <h1 className="headline mt-5 text-balance">{heading}</h1>
 
         {error && (
-          <div className="callout mt-5 flex items-center gap-2 px-4 py-3 text-xs font-medium">
+          <div
+            role="alert"
+            className="mt-5 border border-[var(--danger)] px-4 py-3 text-xs leading-relaxed text-[var(--danger)]"
+          >
             {error}
           </div>
         )}
 
-        {/* Enter email → branch to MFA or emailed link */}
+        {/* Step 1 — who are you */}
         {phase === "enter-email" && (
           <form onSubmit={submitEmail} className="mt-8 space-y-5">
             <p className="lede text-base">
-              Enter your work email. If your account uses an authenticator, you'll
-              reset it here with a code; otherwise we'll email you a link.
+              Enter your work email. We&rsquo;ll send you a reset link — and if
+              your account has an authenticator, you can reset with a code
+              instead.
             </p>
             <div>
               <label htmlFor="email" className="block text-sm font-semibold">
@@ -107,38 +141,88 @@ export default function ResetPassword() {
               <input
                 id="email"
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@yourcompany.com"
-                autoComplete="email"
                 required
+                autoFocus
+                value={email}
+                onChange={(ev) => setEmail(ev.target.value)}
+                placeholder="you@yourcompany.com"
                 className="field mt-2"
+                autoComplete="username"
               />
             </div>
-            <Button type="submit" disabled={busy} className="w-full">
-              {busy ? <Loader2 size={16} className="animate-spin" /> : "Continue"}
+            <Button variant="accent" size="lg" className="w-full" disabled={busy}>
+              {busy ? (
+                <Loader2 size={15} className="animate-spin" aria-hidden />
+              ) : (
+                <Mail size={15} aria-hidden />
+              )}
+              CONTINUE
             </Button>
+            <button
+              type="button"
+              onClick={() => setPhase("code-reset")}
+              className="fg-3 mono-xs w-full cursor-pointer text-center hover:text-[var(--fg)]"
+            >
+              I HAVE AN AUTHENTICATOR — RESET WITH A CODE
+            </button>
           </form>
         )}
 
-        {/* Emailed-link path: set a new password, no code */}
-        {phase === "set-new" && (
-          <form onSubmit={(e) => submitNewPassword(e, false)} className="mt-8 space-y-5">
-            <p className="lede text-base">Choose a new password for your account.</p>
-            <NewPasswordField value={newPass} onChange={setNewPass} />
-            <Button type="submit" disabled={busy} className="w-full">
-              {busy ? <Loader2 size={16} className="animate-spin" /> : "Set new password"}
-            </Button>
-          </form>
-        )}
-
-        {/* MFA path: authenticator code + new password */}
-        {phase === "mfa-reset" && (
-          <form onSubmit={(e) => submitNewPassword(e, true)} className="mt-8 space-y-5">
-            <p className="lede text-base">
-              Enter the 6-digit code from your authenticator app and choose a new
-              password.
+        {/* Step 2a — the link was sent */}
+        {phase === "email-sent" && (
+          <div className="mt-8 space-y-5">
+            <p className="lede text-base">{notice}</p>
+            <p className="fg-3 text-sm leading-relaxed">
+              The link works once and expires in 30 minutes. Check your spam
+              folder before asking for another — requesting again too quickly
+              won&rsquo;t send a second one.
             </p>
+            {devLink && (
+              <div className="callout px-4 py-3">
+                <p className="mono-xs font-semibold">DEVELOPMENT ONLY</p>
+                <a href={devLink} className="mono-xs accent mt-1 block break-all">
+                  {devLink}
+                </a>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setPhase("code-reset")}
+              className="fg-3 mono-xs w-full cursor-pointer text-center hover:text-[var(--fg)]"
+            >
+              NO EMAIL? RESET WITH AN AUTHENTICATOR CODE
+            </button>
+          </div>
+        )}
+
+        {/* Step 2b — authenticator only, no email involved */}
+        {phase === "code-reset" && (
+          <form onSubmit={submitWithCode} className="mt-8 space-y-5">
+            {!emailWorks && notice && (
+              <div className="callout flex items-start gap-2.5 px-4 py-3">
+                <ShieldAlert size={15} className="mt-0.5 shrink-0" aria-hidden />
+                <p className="text-xs leading-relaxed">{notice}</p>
+              </div>
+            )}
+            <p className="lede text-base">
+              Enter your email, the six-digit code from your authenticator app,
+              and a new password.
+            </p>
+            <div>
+              <label htmlFor="code-email" className="block text-sm font-semibold">
+                Work email
+              </label>
+              <input
+                id="code-email"
+                type="email"
+                required
+                value={email}
+                onChange={(ev) => setEmail(ev.target.value)}
+                placeholder="you@yourcompany.com"
+                className="field mt-2"
+                autoComplete="username"
+              />
+            </div>
             <div>
               <label htmlFor="code" className="block text-sm font-semibold">
                 Authenticator code
@@ -146,104 +230,134 @@ export default function ResetPassword() {
               <input
                 id="code"
                 inputMode="numeric"
-                pattern="\d{6}"
-                maxLength={6}
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                placeholder="123456"
-                autoComplete="one-time-code"
                 required
-                className="field mt-2 tracking-[0.3em]"
+                value={code}
+                onChange={(ev) =>
+                  setCode(ev.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                placeholder="000000"
+                className="field mono tnum mt-2 text-center text-lg tracking-[0.3em]"
+                autoComplete="one-time-code"
               />
             </div>
-            <NewPasswordField value={newPass} onChange={setNewPass} />
-            <Button type="submit" disabled={busy} className="w-full">
+            <div>
+              <label htmlFor="new-pass-code" className="block text-sm font-semibold">
+                New password
+              </label>
+              <input
+                id="new-pass-code"
+                type="password"
+                required
+                minLength={12}
+                value={newPass}
+                onChange={(ev) => setNewPass(ev.target.value)}
+                className="field mt-2"
+                autoComplete="new-password"
+              />
+              <p className="fg-3 mt-2 text-xs leading-relaxed">
+                At least 12 characters. A passphrase of a few words is stronger
+                than a short complicated one.
+              </p>
+            </div>
+            <Button
+              variant="accent"
+              size="lg"
+              className="w-full"
+              disabled={busy || code.length < 6}
+            >
               {busy ? (
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={15} className="animate-spin" aria-hidden />
               ) : (
-                <>
-                  <KeyRound size={16} /> Reset password
-                </>
+                <KeyRound size={15} aria-hidden />
               )}
+              SET NEW PASSWORD
             </Button>
           </form>
         )}
 
-        {/* Non-MFA: email sent */}
-        {phase === "email-sent" && (
-          <div className="mt-8 space-y-5">
-            <div className="flex items-start gap-3">
-              <Mail size={18} className="mt-0.5 text-[var(--accent)]" aria-hidden />
-              <p className="lede text-base">
-                If that account exists, we've sent a reset link to its email. The
-                link is valid for 30 minutes.
+        {/* Step 2c — arrived from the emailed link */}
+        {phase === "set-new" && (
+          <form onSubmit={submitFromLink} className="mt-8 space-y-5">
+            <p className="lede text-base">
+              Choose a new password. If your account uses an authenticator, add
+              its current code as well.
+            </p>
+            <div>
+              <label htmlFor="new-pass" className="block text-sm font-semibold">
+                New password
+              </label>
+              <input
+                id="new-pass"
+                type="password"
+                required
+                minLength={12}
+                autoFocus
+                value={newPass}
+                onChange={(ev) => setNewPass(ev.target.value)}
+                className="field mt-2"
+                autoComplete="new-password"
+              />
+              <p className="fg-3 mt-2 text-xs leading-relaxed">
+                At least 12 characters. A passphrase of a few words is stronger
+                than a short complicated one.
               </p>
             </div>
-            {devLink && (
-              <p className="fg-3 break-all text-xs">
-                Dev link:{" "}
-                <a href={devLink} className="underline">
-                  {devLink}
-                </a>
-              </p>
-            )}
-            <Link to="/signin" className="inline-block">
-              <Button variant="line">Back to sign in</Button>
-            </Link>
-          </div>
+            <div>
+              <label htmlFor="link-code" className="block text-sm font-semibold">
+                Authenticator code{" "}
+                <span className="fg-3 font-normal">— if you use one</span>
+              </label>
+              <input
+                id="link-code"
+                inputMode="numeric"
+                value={code}
+                onChange={(ev) =>
+                  setCode(ev.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                placeholder="000000"
+                className="field mono tnum mt-2 text-center text-lg tracking-[0.3em]"
+                autoComplete="one-time-code"
+              />
+            </div>
+            <Button variant="accent" size="lg" className="w-full" disabled={busy}>
+              {busy ? (
+                <Loader2 size={15} className="animate-spin" aria-hidden />
+              ) : (
+                <KeyRound size={15} aria-hidden />
+              )}
+              SET NEW PASSWORD
+            </Button>
+          </form>
         )}
 
-        {/* Success */}
+        {/* Done */}
         {phase === "done" && (
-          <div className="mt-8 space-y-5">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 size={18} className="mt-0.5 text-emerald-600" aria-hidden />
-              <p className="lede text-base">
-                Your password has been updated. Sign in with your new password.
-              </p>
-            </div>
-            <Button onClick={() => navigate("/signin")} className="w-full">
-              Go to sign in
+          <div className="mt-8 space-y-6">
+            <p className="flex items-start gap-2.5 text-sm leading-relaxed text-[var(--ok)]">
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden />
+              Your password is updated, and every other session has been signed
+              out.
+            </p>
+            <Button
+              variant="accent"
+              size="lg"
+              className="w-full"
+              onClick={() => navigate("/signin")}
+            >
+              SIGN IN
             </Button>
           </div>
         )}
 
-        {phase !== "done" && phase !== "email-sent" && (
-          <p className="fg-3 mt-6 text-xs">
+        {phase !== "done" && (
+          <p className="fg-3 mt-8 text-sm">
             Remembered it?{" "}
-            <Link to="/signin" className="underline">
-              Back to sign in
+            <Link to="/signin" className="accent font-semibold hover:underline">
+              Sign in
             </Link>
           </p>
         )}
       </div>
     </main>
-  );
-}
-
-function NewPasswordField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <label htmlFor="newpass" className="block text-sm font-semibold">
-        New password
-      </label>
-      <input
-        id="newpass"
-        type="password"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="at least 12 characters — a passphrase is ideal"
-        autoComplete="new-password"
-        minLength={12}
-        required
-        className="field mt-2"
-      />
-    </div>
   );
 }

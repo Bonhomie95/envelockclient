@@ -29,6 +29,8 @@ import {
   api,
   auth,
   type AlertRecord,
+  type AuditEvent,
+  type LookalikeDomain,
   type ConnectionPlan,
   type ImapConnectBody,
   type ImapProbeResult,
@@ -369,6 +371,225 @@ function CoverageSummary({ mailboxes }: { mailboxes: MailboxRecord[] }) {
           </div>
         )}
       </dl>
+    </div>
+  );
+}
+
+/* The tenant's own audit trail (E5).
+ *
+ * The endpoint and its client binding both existed; nothing ever called them,
+ * so "IT can see who acted and who ignored it" — a thing the product is sold on
+ * — was answerable only by querying the database. It also surfaces the actions
+ * Envelock's own operators take on the account, which is the half a customer
+ * has the most right to see. */
+const AUDIT_LABELS: Record<string, string> = {
+  "alert.raised": "Alert raised",
+  "alert.viewed": "Alert viewed",
+  "alert.acknowledged": "Alert acknowledged",
+  "alert.resolved": "Alert resolved",
+  "alert.dismissed": "Alert dismissed",
+  "alert.escalated": "Escalated",
+  "message.quarantined": "Message quarantined",
+  "mailbox.connected": "Mailbox connected",
+  "settings.changed": "Settings changed",
+  "webhook.registered": "SIEM webhook registered",
+  "webhook.removed": "SIEM webhook removed",
+  "admin.plan_changed": "Plan changed by Envelock",
+  "admin.trial_extended": "Trial extended by Envelock",
+  "admin.tenant_suspended": "Account suspended by Envelock",
+  "admin.tenant_activated": "Account reactivated by Envelock",
+  "admin.user_approved": "User approved by Envelock",
+  "admin.user_suspended": "User suspended by Envelock",
+  "admin.role_changed": "Role changed by Envelock",
+};
+
+function AuditTrail() {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || events !== null) return;
+    let live = true;
+    api
+      .audit(50)
+      .then((r) => live && setEvents(r.events))
+      .catch((e) =>
+        live && setError(e instanceof ApiError ? e.message : "Could not load the trail."),
+      );
+    return () => {
+      live = false;
+    };
+  }, [open, events]);
+
+  return (
+    <div className="panel">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center justify-between gap-3 px-5 py-3.5 text-left"
+      >
+        <span className="sect-label">Audit trail</span>
+        <span className="fg-3 mono-xs">{open ? "HIDE" : "SHOW"}</span>
+      </button>
+
+      {open && (
+        <div className="border-t px-5 py-4">
+          {error && (
+            <p role="alert" className="text-xs text-[var(--danger)]">
+              {error}
+            </p>
+          )}
+          {events === null && !error && (
+            <p className="fg-3 mono-xs">LOADING…</p>
+          )}
+          {events !== null && events.length === 0 && (
+            <p className="fg-3 text-xs leading-relaxed">
+              Nothing recorded yet. Every action on this account — yours and
+              anything Envelock support does — appears here.
+            </p>
+          )}
+          {events !== null && events.length > 0 && (
+            <ol className="space-y-2.5" role="list">
+              {events.map((e) => (
+                <li key={e.id} className="flex items-baseline gap-3 text-xs">
+                  <time
+                    dateTime={e.at}
+                    className="fg-3 mono-xs tnum shrink-0"
+                    title={new Date(e.at).toLocaleString()}
+                  >
+                    {timeOf(e.at)}
+                  </time>
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">
+                      {AUDIT_LABELS[e.action] ?? e.action}
+                    </span>
+                    {typeof e.detail?.address === "string" && (
+                      <span className="fg-2"> — {e.detail.address}</span>
+                    )}
+                    {typeof e.detail?.by === "string" && (
+                      <span className="fg-3"> by {e.detail.by}</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Group D — domains registered to impersonate this company.
+ *
+ * This had a working endpoint, a client binding and no UI at all, which matters
+ * most for the free Guard tier: brand monitoring is the ONLY thing Envelock
+ * produces for a Guard customer, so without this panel their dashboard showed
+ * them nothing the product had actually done. It is also the strongest argument
+ * for upgrading, and it was invisible.
+ *
+ * `armed` is the field that decides how alarmed to be: a lookalike domain with
+ * MX records can send mail today; one without is a squat that has not been
+ * weaponised yet. Sorting and labelling on that, rather than on similarity,
+ * is what keeps this from being a wall of noise. */
+function LookalikeWatch() {
+  const [rows, setRows] = useState<LookalikeDomain[] | null>(null);
+  const [armed, setArmed] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .lookalikes()
+      .then((r) => {
+        if (!live) return;
+        setRows(r.lookalikes);
+        setArmed(r.armed_count);
+      })
+      .catch((e) =>
+        live &&
+        setError(e instanceof ApiError ? e.message : "Could not load domain watch."),
+      );
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Nothing found is the healthy state and says so, but an empty panel while
+  // still loading would flash "all clear" before we know that.
+  if (rows === null && !error) return null;
+
+  return (
+    <div className="panel">
+      <div className="flex items-baseline justify-between gap-3 border-b px-5 py-3.5">
+        <h2 className="sect-label">Domain watch</h2>
+        {rows !== null && rows.length > 0 && (
+          <span className="mono-xs fg-3 tnum">
+            {armed} OF {rows.length} CAN SEND MAIL
+          </span>
+        )}
+      </div>
+
+      <div className="px-5 py-4">
+        {error && (
+          <p role="alert" className="text-xs text-[var(--danger)]">
+            {error}
+          </p>
+        )}
+
+        {rows !== null && rows.length === 0 && (
+          <p className="fg-3 text-xs leading-relaxed">
+            No lookalike domains found for you yet. We watch certificate
+            transparency logs continuously and this fills in the moment somebody
+            registers a domain built to be mistaken for yours — on every plan,
+            including the free one.
+          </p>
+        )}
+
+        {rows !== null && rows.length > 0 && (
+          <ul className="space-y-3" role="list">
+            {rows.slice(0, 8).map((row) => (
+              <li key={row.candidate} className="flex items-start gap-3">
+                <Globe
+                  size={14}
+                  className={cn(
+                    "mt-0.5 shrink-0",
+                    row.armed ? "text-[var(--danger)]" : "fg-3",
+                  )}
+                  aria-hidden
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-mono truncate text-xs font-medium">
+                    {row.candidate}
+                  </p>
+                  <p className="fg-3 mono-xs mt-0.5">
+                    {row.technique.replace(/_/g, " ").toUpperCase()} ·{" "}
+                    {Math.round(row.similarity * 100)}% SIMILAR
+                  </p>
+                  {/* Icon + colour + words: never colour alone. */}
+                  <p
+                    className={cn(
+                      "mt-1 text-xs leading-relaxed",
+                      row.armed ? "text-[var(--danger)]" : "fg-2",
+                    )}
+                  >
+                    {row.armed
+                      ? "Has mail servers configured — this domain can send email pretending to be you today."
+                      : "Registered but not set up to send mail yet. We keep watching it."}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {rows !== null && rows.length > 8 && (
+          <p className="fg-3 mono-xs mt-3">
+            + {rows.length - 8} MORE BEING WATCHED
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -2724,6 +2945,10 @@ export default function Dashboard() {
           <ConnectionAdvisor defaultDomain={hasDomain ? domain : ""} />
 
           <AppPasswordNotice />
+
+          <LookalikeWatch />
+
+          <AuditTrail />
 
           <div className="panel" id="coverage">
             <div className="border-b px-5 py-3.5">

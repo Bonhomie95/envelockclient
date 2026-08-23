@@ -170,6 +170,42 @@ export interface ImapConnectBody {
   autodiscover?: boolean;
 }
 
+/** One entry in the tenant's own audit trail (E5). This is what makes "IT can
+ *  see who acted and who ignored it" answerable — including the actions
+ *  Envelock's own operators take on the account. */
+export interface AuditEvent {
+  id: string;
+  action: string;
+  actor_id: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  detail: Record<string, unknown> | null;
+  at: string;
+}
+
+/** A domain registered to look like one of the tenant's own. `armed` is the
+ *  field that matters: a lookalike with MX records can actually send mail. */
+export interface LookalikeDomain {
+  candidate: string;
+  protected: string;
+  technique: string;
+  similarity: number;
+  armed: boolean;
+  status: string;
+  first_seen_source: string | null;
+}
+
+export interface Counterparty {
+  registrable_domain: string;
+  display_name?: string | null;
+  message_count?: number;
+  known_bank_ids?: string[];
+  verified_phone?: string | null;
+  is_trusted?: boolean;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+}
+
 export interface MailboxRecord {
   id: string;
   address: string;
@@ -489,24 +525,42 @@ export const api = {
 
   // Begin a password reset. An MFA account gets back method:"mfa" + a reset token
   // (used with the authenticator code); a non-MFA account gets method:"email".
+  /** Begin a reset. The answer is deliberately identical for a real address and
+   *  an unknown one — it never reveals whether an account exists. What it DOES
+   *  report is whether this deployment can send email at all, which is a
+   *  property of the deployment rather than the account, and therefore safe to
+   *  state: without it the UI said "check your email" on a deployment that had
+   *  no relay and sent nothing, forever. */
   forgotPassword: (email: string) =>
     request<{
-      method: "mfa" | "email";
       message: string;
-      reset_token?: string;
-      reset_link?: string;
+      email_delivery: "available" | "unavailable";
+      code_reset_available: boolean;
+      reset_link?: string; // development only
     }>("/api/v1/auth/password/forgot", {
       method: "POST",
       body: JSON.stringify({ email }),
     }),
 
-  // Complete a reset. `code` is required for MFA accounts, omitted for the
-  // emailed-link (non-MFA) path.
+  /** Complete a reset from an emailed link. `code` is additionally required when
+   *  the account has an authenticator. */
   resetPassword: (body: { token: string; new_password: string; code?: string }) =>
     request<{ ok: boolean; message: string }>("/api/v1/auth/password/reset", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /** Reset with the authenticator alone — no email, no link. This is what keeps
+   *  recovery working on a deployment whose relay is not provisioned yet. */
+  resetPasswordWithCode: (body: {
+    email: string;
+    code: string;
+    new_password: string;
+  }) =>
+    request<{ ok: boolean; message: string }>(
+      "/api/v1/auth/password/reset-with-code",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
 
   mfaSetup: (mfaToken: string) =>
     request<{ secret: string; otpauth_uri: string }>("/api/v1/auth/mfa/setup", {
@@ -691,7 +745,20 @@ export const api = {
 
   // E10 — per-counterparty risk profiles.
   counterparties: () =>
-    request<{ counterparties: unknown[] }>("/api/v1/counterparties"),
+    request<{ counterparties: Counterparty[] }>("/api/v1/counterparties"),
+
+  /** Group D — domains registered to impersonate this tenant. On the free Guard
+   *  tier this is the ONLY thing the product produces, so it must be visible. */
+  lookalikes: () =>
+    request<{ lookalikes: LookalikeDomain[]; armed_count: number }>(
+      "/api/v1/lookalikes",
+    ),
+
+  reportLookalike: (candidate: string, fraudulent = true) =>
+    request<unknown>(
+      `/api/v1/lookalikes/${encodeURIComponent(candidate)}/report?fraudulent=${fraudulent}`,
+      { method: "POST" },
+    ),
 
   // Change the subscribed plan (owner only). Moving to a paid tier needs an
   // active trial or a card on file; the server returns 402 otherwise.
@@ -820,10 +887,8 @@ export const api = {
 
   oversight: () => request<Oversight>("/api/v1/oversight"),
 
-  audit: () =>
-    request<{ events: { action: string; at: string; detail: unknown }[] }>(
-      "/api/v1/audit",
-    ),
+  audit: (limit = 50) =>
+    request<{ events: AuditEvent[] }>(`/api/v1/audit?limit=${limit}`),
 
   simulate: (protected_domain: string) =>
     request<SimulationResult>("/api/v1/simulate", {

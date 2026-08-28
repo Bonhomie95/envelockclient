@@ -115,9 +115,7 @@ export function DomainVerify({
       </p>
       <p className="mt-1 opacity-80">
         Add this DNS record at your registrar. We check automatically every few
-        seconds and continue the moment it's found — until then, we won't connect
-        any mailbox on this domain, which stops anyone using an address they don't
-        actually own.
+        seconds.
       </p>
 
       <div className="mt-3 flex gap-2 text-xs">
@@ -160,7 +158,7 @@ export function DomainVerify({
           </Button>
         )}
         <span className="ml-auto text-xs opacity-60" aria-live="polite">
-          Checking automatically…
+          Checking ...
         </span>
       </div>
     </div>

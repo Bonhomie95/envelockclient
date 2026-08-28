@@ -3,12 +3,14 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   Banknote,
-  Check,
+  // Check, // parked: not in two-feature v1 (was only used by the pricing grid)
   Globe,
+  Link2,
   Loader2,
   MessageSquareText,
   ScanEye,
   Search,
+  ShieldCheck,
   Sparkles,
   UserCheck,
 } from "lucide-react";
@@ -129,6 +131,51 @@ function Scanner() {
   );
 }
 
+/* Static illustration of the two features in the product's own visual language:
+   a click-time link verdict list, and a held payment. No live calls — the hero
+   must never depend on an API to render. */
+function ClickCheckDemo() {
+  const links = [
+    ["invoices.yoursupplier.com/aug", "SAFE · OPENED", "accent"],
+    ["secure-payment-update.net/login", "PHISHING · BLOCKED", "text-[var(--danger)]"],
+    ["docs-share.icu/Invoice_884.exe", "MALWARE · BLOCKED", "text-[var(--danger)]"],
+  ] as const;
+  return (
+    <div className="panel">
+      <div className="p-6">
+        <p className="flex items-center gap-2 text-base font-semibold">
+          <ShieldCheck size={16} className="accent" aria-hidden />
+          Every link, checked when it&rsquo;s clicked
+        </p>
+        <p className="fg-2 mt-2 text-sm leading-relaxed">
+          Links in protected mail are rewritten to pass through Envelock. Safe
+          pages open instantly. Phishing and malware stop at the click — on any
+          device, even ones we&rsquo;ve never seen.
+        </p>
+        <ul className="mt-5 divide-y" role="list">
+          {links.map(([url, verdict, tone]) => (
+            <li key={url} className="flex items-center gap-3 py-2.5">
+              <code className="flex-1 truncate font-mono text-xs">{url}</code>
+              <span className={cn("mono-xs shrink-0", tone)}>{verdict}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="border-t p-6">
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          <Banknote size={15} className="accent" aria-hidden />
+          Bank details changed mid-thread
+        </p>
+        <p className="fg-2 mt-2 text-xs leading-relaxed">
+          &ldquo;Please use our new account for this invoice.&rdquo; The account
+          your supplier has always used is on file — the mail is quarantined and
+          your team alerted before any money moves.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const PROBLEMS = [
   {
     icon: Banknote,
@@ -136,14 +183,14 @@ const PROBLEMS = [
     body: "Someone asks you to pay a new bank account. It arrives inside a conversation you have been having for months, so it looks completely ordinary. We hold the account details your supplier has always used, and stop the payment when they change.",
   },
   {
-    icon: Globe,
-    title: "The domain that isn't quite yours",
-    body: "One character different from your company's, or a letter swapped for one that looks identical on screen. We find these the moment they are registered and warn you before anyone is fooled.",
+    icon: Link2,
+    title: "The link that isn't what it says",
+    body: "A convincing email, a link that looks right, and a login page built to steal a password. Every link in protected mail passes through Envelock first — checked at the moment it's clicked, on any device, and blocked if it's phishing or malware.",
   },
   {
     icon: UserCheck,
-    title: "The login that isn't you",
-    body: "Someone else reading your mail, quietly, for weeks before they act. We notice a mailbox being opened when none of your devices are, and tell you the same day.",
+    title: "The supplier whose mailbox was hijacked",
+    body: "The scariest fraud comes from a real supplier's real address — their mailbox was broken into, and the 'updated bank details' are the criminal's. Because we verify the payment details, not just the sender, the switch is caught and the mail is quarantined.",
   },
 ];
 
@@ -218,16 +265,17 @@ export default function Landing() {
               <Sparkles size={12} aria-hidden /> NOW WITH AN AI FRAUD ANALYST
             </span>
             <h1 className="display mt-6">
-              Your money should
+              We stop your money
               <br />
-              not go to the
+              going to the
               <br />
-              <span className="accent">wrong account.</span>
+              <span className="accent">wrong bank account.</span>
             </h1>
 
             <p className="lede mt-8">
-              Businesses lose money every day to emails that look exactly like the
-              real thing. Envelock spots them before anyone pays.
+              And your team can&rsquo;t click a phishing link — we check every
+              link at the moment it&rsquo;s clicked, on any device. Two frauds,
+              stopped where they actually happen.
             </p>
 
             <div className="mt-10 flex flex-col gap-px sm:flex-row">
@@ -250,7 +298,8 @@ export default function Landing() {
           </div>
 
           <div className="col-span-12 mt-12 lg:col-span-5 lg:col-start-8 lg:mt-0">
-            <Scanner />
+            {/* parked: not in two-feature v1 (brand protection) — <Scanner /> */}
+            <ClickCheckDemo />
           </div>
         </div>
       </section>
@@ -357,6 +406,7 @@ export default function Landing() {
       </section>
 
       {/* Pricing */}
+      {/* parked: not in two-feature v1 — billing flows are unmounted server-side
       <section id="pricing" className="border-b">
         <div className="shell py-16 md:py-24">
           <SectionHead
@@ -406,28 +456,35 @@ export default function Landing() {
           </p>
         </div>
       </section>
+      */}
 
       {/* Close */}
       <section>
         <div className="shell grid12 items-center py-16 md:py-24">
           <div className="col-span-12 lg:col-span-7">
             <h2 className="headline text-balance">
-              Find out who is already impersonating you.
+              Two ways to lose money by email. Close both today.
             </h2>
             <p className="lede mt-4">
-              Free, permanent, and it only needs your domain name.
+              Works with the mail you already use — protection starts the day
+              you connect.
             </p>
           </div>
           <div className="col-span-12 mt-8 lg:col-span-4 lg:col-start-9 lg:mt-0 lg:justify-self-end">
-            <a href="#top">
+            <Link to="/signin">
               <Button variant="accent" size="lg" className="w-full sm:w-auto">
-                CHECK MY DOMAIN
+                GET STARTED FREE
                 <ArrowRight size={14} aria-hidden />
               </Button>
-            </a>
+            </Link>
           </div>
         </div>
       </section>
     </main>
   );
 }
+
+/* parked: not in two-feature v1 — the lookalike Scanner and the pricing grid are
+   unmounted above but kept for later; referencing them keeps noUnusedLocals quiet. */
+void Scanner;
+void PLANS;

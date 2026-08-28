@@ -11,7 +11,7 @@ import {
 } from "react-router-dom";
 import {
   BookOpen,
-  CreditCard,
+  // CreditCard, // parked: not in two-feature v1 (billing)
   FlaskConical,
   LayoutDashboard,
   Loader2,
@@ -20,7 +20,7 @@ import {
   Moon,
   Sun,
   UserRound,
-  Users,
+  // Users, // parked: not in two-feature v1 (team)
   X,
 } from "lucide-react";
 import { api, auth } from "./lib/api";
@@ -273,7 +273,7 @@ const FOOTER = [
     title: "Product",
     links: [
       ["What we stop", "/#problems"],
-      ["Pricing", "/#pricing"],
+      // parked: not in two-feature v1 — ["Pricing", "/#pricing"],
       ["Documentation", "/docs"],
       ["Detection sandbox", "/analyse"],
       ["Sign in", "/signin"],
@@ -282,11 +282,11 @@ const FOOTER = [
   {
     title: "Protects against",
     links: [
+      ["Changed bank details", "/docs#detections"],
       ["Invoice fraud", "/docs#detections"],
-      ["Lookalike domains", "/docs#detections"],
-      ["Account takeover", "/docs#detections"],
-      ["Thread hijacking", "/docs#detections"],
-      ["Mailbox tampering", "/docs#detections"],
+      ["Compromised vendors", "/docs#detections"],
+      ["Phishing links", "/docs#detections"],
+      ["Malicious links", "/docs#detections"],
     ],
   },
   {
@@ -319,7 +319,7 @@ function Footer() {
           <div className="col-span-12 lg:col-span-4">
             <Logo />
             <p className="fg-2 mt-5 max-w-xs text-sm leading-relaxed">
-              Email fraud and account-takeover protection for businesses on any
+              Payment-fraud and phishing-link protection for businesses on any
               mail provider.
             </p>
             <p className="fg-3 mono-xs mt-6">
@@ -408,8 +408,9 @@ function MarketingLayout() {
    workspace so it never reads as "still on the landing page". */
 const APP_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
-  { to: "/team", label: "Team", icon: Users, adminOnly: true },
-  { to: "/billing", label: "Billing", icon: CreditCard, adminOnly: true },
+  // parked: not in two-feature v1 — backend routers unmounted
+  // { to: "/team", label: "Team", icon: Users, adminOnly: true },
+  // { to: "/billing", label: "Billing", icon: CreditCard, adminOnly: true },
   { to: "/profile", label: "Profile", icon: UserRound, adminOnly: false },
   { to: "/analyse", label: "Sandbox", icon: FlaskConical, adminOnly: false },
   { to: "/docs", label: "Documentation", icon: BookOpen, adminOnly: false },
@@ -420,11 +421,11 @@ function AppLayout() {
   const { pathname } = useLocation();
   const signedIn = auth.signedIn;
   const isAdmin = auth.role === "owner" || auth.role === "admin";
+  void signedIn;
+  void pathname;
 
-  // Show admins how many colleagues are waiting for approval, right on the Team
-  // item — the other half of the dashboard's "Waiting for approval" screen.
-  // Re-checked on navigation, and immediately when the Team page approves or
-  // removes someone (via a lightweight window event) so the badge never lags.
+  /* parked: not in two-feature v1 — Team page is hidden, so the pending-member
+     badge (and its api.members() poll) is parked with it.
   const [pending, setPending] = useState(0);
   useEffect(() => {
     if (!signedIn || !isAdmin) return;
@@ -447,6 +448,7 @@ function AppLayout() {
       window.removeEventListener("envelock:team-changed", refresh);
     };
   }, [signedIn, isAdmin, pathname]);
+  */
 
   async function signOut() {
     try {
@@ -462,7 +464,7 @@ function AppLayout() {
     to: i.to,
     label: i.label,
     icon: i.icon,
-    badge: i.to === "/team" ? pending : undefined,
+    badge: undefined as number | undefined, // parked: was the /team pending count
   }));
 
   return (
@@ -516,8 +518,9 @@ function NotFound() {
    marketing page shipped the whole 2,500-line console to every first-time
    visitor, on whatever connection they happened to be on. */
 const LazyDashboard = lazy(() => import("./pages/Dashboard"));
-const LazyTeam = lazy(() => import("./pages/Team"));
-const LazyBilling = lazy(() => import("./pages/Billing"));
+// parked: not in two-feature v1 — backend routers unmounted
+// const LazyTeam = lazy(() => import("./pages/Team"));
+// const LazyBilling = lazy(() => import("./pages/Billing"));
 const LazyProfile = lazy(() => import("./pages/Profile"));
 const LazyDocs = lazy(() => import("./pages/Docs"));
 const LazyAnalyse = lazy(() => import("./pages/Analyse"));
@@ -565,6 +568,7 @@ export default function App() {
                 </RequireAuth>
               }
             />
+            {/* parked: not in two-feature v1 — /team and /billing routes
             <Route
               path="/team"
               element={
@@ -581,6 +585,7 @@ export default function App() {
                 </RequireAuth>
               }
             />
+            */}
             <Route
               path="/profile"
               element={

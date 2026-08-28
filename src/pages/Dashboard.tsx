@@ -7,7 +7,7 @@ import {
   Check,
   CheckCircle2,
   Copy,
-  CreditCard,
+  // CreditCard, // parked: not in two-feature v1 (billing)
   Fingerprint,
   Forward,
   Globe,
@@ -1730,12 +1730,14 @@ function AddMailbox({
                 ? "Upgrade to Essential or Complete to protect mailboxes."
                 : "Buy more seats (or upgrade your plan) to add another mailbox."}
             </p>
+            {/* parked: not in two-feature v1 (billing)
             <Link to="/billing" className="mt-2 inline-block">
               <Button size="sm" variant="accent">
                 <CreditCard size={12} aria-hidden />
                 {mailboxes && mailboxes.capacity === 0 ? "UPGRADE" : "BUY SEATS"}
               </Button>
             </Link>
+            */}
           </div>
         ) : (
           <>
@@ -2079,6 +2081,7 @@ function OnboardingChecklist({
         </button>
       ),
     },
+    /* parked: not in two-feature v1 (billing)
     {
       key: "billing",
       done: paymentOk,
@@ -2090,7 +2093,9 @@ function OnboardingChecklist({
         </Link>
       ),
     },
+    */
   ];
+  void paymentOk; // parked: only the hidden billing step read this
 
   const doneCount = steps.filter((s) => s.done).length;
   if (doneCount === steps.length) return null; // fully set up — get out of the way
@@ -2795,6 +2800,7 @@ export default function Dashboard() {
 
       {/* Teammates awaiting approval — admins/owners are told here so they don't
           have to stumble onto the Team page to find a pending colleague. */}
+      {/* parked: not in two-feature v1 — links to the hidden /team page
       {tenant &&
         tenant.pending_members > 0 &&
         (auth.role === "owner" || auth.role === "admin") && (
@@ -2819,9 +2825,11 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+      */}
 
       {/* Trial countdown — shown while the trial runs and no card is on file, so
           the days remaining are always in view with a one-click path to keep it. */}
+      {/* parked: not in two-feature v1 (billing)
       {tenant?.trial.active &&
         tenant.trial.days_left !== null &&
         !tenant.trial.payment_method_ok && (
@@ -2853,6 +2861,7 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+      */}
 
       <div className="shell grid12 py-8">
         <section className="col-span-12 lg:col-span-8">
@@ -2899,8 +2908,8 @@ export default function Dashboard() {
                   {filter === "all" ? "No alerts yet." : "Nothing open."}
                 </p>
                 <p className="fg-3 mx-auto mt-2 max-w-md text-sm leading-relaxed">
-                  This is your alert queue. When Envelock spots invoice fraud, a
-                  lookalike domain, or an account takeover in a connected
+                  This is your alert queue. When Envelock spots changed bank
+                  details, invoice fraud, or a dangerous link in a connected
                   mailbox, it appears here with the action to take — verify,
                   quarantine or dismiss. An empty queue means nothing needs you
                   right now; quiet is the correct state.
@@ -2938,7 +2947,9 @@ export default function Dashboard() {
             />
           )}
 
+          {/* parked: not in two-feature v1 (billing)
           {tenant && <UpgradePlans tenant={tenant} onChanged={load} />}
+          */}
 
           <PushAlerts />
 
@@ -2946,9 +2957,11 @@ export default function Dashboard() {
 
           <AppPasswordNotice />
 
+          {/* parked: not in two-feature v1
           <LookalikeWatch />
 
           <AuditTrail />
+          */}
 
           <div className="panel" id="coverage">
             <div className="border-b px-5 py-3.5">
@@ -3020,7 +3033,9 @@ export default function Dashboard() {
             <AddMailbox onAdded={load} mailboxes={tenant?.mailboxes} />
           </div>
 
+          {/* parked: not in two-feature v1 (governance/SIEM)
           <GoverningMetrics />
+          */}
 
           {stats && (
             <div className="panel p-5">
@@ -3075,3 +3090,10 @@ export default function Dashboard() {
 }
 
 export type { Tier };
+
+/* parked: not in two-feature v1 — these sections are unmounted above but their
+   code is kept for later; referencing them here keeps noUnusedLocals quiet. */
+void AuditTrail;
+void LookalikeWatch;
+void GoverningMetrics;
+void UpgradePlans;

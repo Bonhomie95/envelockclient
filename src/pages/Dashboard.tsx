@@ -913,7 +913,11 @@ function MailboxConnect({
     // discover, with it open we use exactly what was typed.
     ...(host ? { imap_host: host, imap_port: port, security } : {}),
     username: username.trim() || undefined,
-    autodiscover: !advanced,
+    // Pin to exactly these settings only when a server was actually typed.
+    // `!advanced` alone meant that merely opening the panel — which now happens
+    // automatically after a failure — sent no host with autodiscover off, and
+    // the backend correctly refused that with a 422.
+    autodiscover: !(advanced && host.trim()),
   });
 
   // Detect the server from the address — no password needed. This is the step
@@ -940,6 +944,27 @@ function MailboxConnect({
     }
   }
 
+  // A failed connection is exactly the moment someone needs the server fields,
+  // and until now it was the one moment the form did not show them: the error
+  // was printed and the panel stayed shut, leaving no visible way to type the
+  // settings from their provider's help page. Open it, and prefill our best
+  // guess so they are correcting a value rather than starting from a blank box.
+  async function revealManualSettings() {
+    setAdvanced(true);
+    if (host.trim()) return;
+    try {
+      const r = await api.imapSettings(mailbox.id);
+      if (r.settings) {
+        setHost(r.settings.host);
+        setPort(r.settings.port);
+        setSecurity(r.settings.security);
+        setDetected(r.note);
+      }
+    } catch {
+      // Prefilling is a convenience; the empty fields are still usable.
+    }
+  }
+
   // Verify the settings without saving — lets the user get the config right
   // before committing the mailbox.
   async function testImap() {
@@ -959,6 +984,9 @@ function MailboxConnect({
         setHost(r.settings.host);
         setPort(r.settings.port);
         setSecurity(r.settings.security);
+      } else if (!r.ok) {
+        // The ladder was tried and nothing answered. Hand over the controls.
+        await revealManualSettings();
       }
     } catch (e) {
       setProbe({
@@ -974,6 +1002,7 @@ function MailboxConnect({
         attempts: [],
         reason: "",
       });
+      await revealManualSettings();
     } finally {
       setBusy(null);
     }
@@ -998,7 +1027,12 @@ function MailboxConnect({
       );
       await onConnected();
     } catch (e) {
-      setNote(e instanceof ApiError ? e.message : "Could not connect.");
+      setNote(
+        (e instanceof ApiError ? e.message : "Could not connect.") +
+          " Enter your server details below — your mail provider's help pages " +
+          "list them under IMAP settings.",
+      );
+      await revealManualSettings();
     } finally {
       setBusy(null);
     }

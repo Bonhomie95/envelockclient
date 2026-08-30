@@ -150,6 +150,30 @@ export interface ImapError {
   detail: string;
 }
 
+/** What a mail server presented, when we refused its certificate.
+ *
+ *  Shown so the customer can make the decision a desktop mail client offers in
+ *  its exception dialog — but with the details in front of them rather than
+ *  behind a shrug. Most often this is shared hosting whose certificate names
+ *  the provider rather than the customer's own domain. */
+export interface ImapCertificate {
+  /** Lowercase hex. What gets approved, and what we then pin to. */
+  sha256: string;
+  subject: string;
+  issuer: string;
+  /** Every host name the certificate is actually valid for. */
+  names: string[];
+  not_before: string;
+  not_after: string;
+  /** The host we connected to — the other half of the comparison. */
+  host: string;
+  expired: boolean;
+  self_signed: boolean;
+  matches_host: boolean;
+  /** One sentence naming what is wrong with it, in plain language. */
+  summary: string;
+}
+
 export interface ImapProbeResult {
   ok: boolean;
   settings: ImapSettings | null;
@@ -157,6 +181,8 @@ export interface ImapProbeResult {
   error: ImapError | null;
   attempts: (ImapSettings & { username: string; ok: boolean; error?: ImapError })[];
   reason: string;
+  /** Present only when the failure was the certificate. */
+  certificate?: ImapCertificate | null;
 }
 
 export interface ImapConnectBody {
@@ -168,6 +194,11 @@ export interface ImapConnectBody {
   username?: string;
   /** False pins the attempt to exactly the settings given (no fallback). */
   autodiscover?: boolean;
+  /** SHA-256 of a certificate the customer has looked at and approved. Sent
+   *  only after a certificate failure showed them what the server presented,
+   *  so it is a decision about one specific certificate rather than a blanket
+   *  "trust anything" switch. */
+  accept_certificate_sha256?: string;
 }
 
 /** One entry in the tenant's own audit trail (E5). This is what makes "IT can
@@ -349,9 +380,22 @@ export function apiUrl(path: string): string {
 export class ApiError extends Error {
   status: number;
 
-  constructor(status: number, message: string) {
+  /** The parsed `detail` when the server sent a structured one, rather than a
+   *  string. Some failures carry data the UI has to act on — a rejected TLS
+   *  certificate the customer must be shown before they can decide about it —
+   *  and flattening that to a message would throw the data away. */
+  detail?: unknown;
+
+  constructor(status: number, message: string, detail?: unknown) {
     super(message);
     this.status = status;
+    this.detail = detail;
+  }
+
+  /** The certificate a mail server presented, when that is why we failed. */
+  get certificate(): ImapCertificate | null {
+    const d = this.detail as { certificate?: ImapCertificate } | undefined;
+    return d?.certificate ?? null;
   }
 
   get unauthorized() {
@@ -436,6 +480,7 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
 
   if (!res.ok) {
     let detail = res.statusText;
+    let structured: unknown;
     try {
       const body = await res.json();
       const d = body?.detail;
@@ -444,8 +489,12 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
       } else if (Array.isArray(d)) {
         // FastAPI validation errors are a list of {loc, msg, type}.
         detail = d.map((e) => e?.msg ?? String(e)).join("; ") || detail;
-      } else if (d) {
-        detail = JSON.stringify(d);
+      } else if (d && typeof d === "object") {
+        // A structured detail. Show its message and keep the rest for the
+        // caller — `JSON.stringify` here used to put raw JSON in front of the
+        // customer and discard the parts the UI needed.
+        structured = d;
+        detail = (d as { message?: string }).message ?? detail;
       }
       // Make throttling human: "try again in ~N minutes" beats a bare message.
       if (res.status === 429) {
@@ -462,7 +511,7 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, structured);
   }
   return res.json() as Promise<T>;
 }

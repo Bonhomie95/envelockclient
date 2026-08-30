@@ -33,6 +33,7 @@ import {
   type LookalikeDomain,
   type ConnectionPlan,
   type ImapConnectBody,
+  type ImapCertificate,
   type ImapProbeResult,
   type MailboxRecord,
   type Oversight,
@@ -869,6 +870,10 @@ function MailboxConnect({
   const [advanced, setAdvanced] = useState(false);
   const [detected, setDetected] = useState<string | null>(null);
   const [probe, setProbe] = useState<ImapProbeResult | null>(null);
+  // A certificate the server presented that we refused. Held here, not acted
+  // on: the customer decides, after seeing what it actually says.
+  const [certificate, setCertificate] = useState<ImapCertificate | null>(null);
+  const [trustCertificate, setTrustCertificate] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -913,6 +918,9 @@ function MailboxConnect({
     // discover, with it open we use exactly what was typed.
     ...(host ? { imap_host: host, imap_port: port, security } : {}),
     username: username.trim() || undefined,
+    ...(trustCertificate && certificate
+      ? { accept_certificate_sha256: certificate.sha256 }
+      : {}),
     // Pin to exactly these settings only when a server was actually typed.
     // `!advanced` alone meant that merely opening the panel — which now happens
     // automatically after a failure — sent no host with autodiscover off, and
@@ -985,8 +993,14 @@ function MailboxConnect({
         setPort(r.settings.port);
         setSecurity(r.settings.security);
       } else if (!r.ok) {
-        // The ladder was tried and nothing answered. Hand over the controls.
-        await revealManualSettings();
+        if (r.certificate) {
+          setCertificate(r.certificate);
+          setTrustCertificate(false);
+          setAdvanced(true);
+        } else {
+          // The ladder was tried and nothing answered. Hand over the controls.
+          await revealManualSettings();
+        }
       }
     } catch (e) {
       setProbe({
@@ -1027,12 +1041,22 @@ function MailboxConnect({
       );
       await onConnected();
     } catch (e) {
-      setNote(
-        (e instanceof ApiError ? e.message : "Could not connect.") +
-          " Enter your server details below — your mail provider's help pages " +
-          "list them under IMAP settings.",
-      );
-      await revealManualSettings();
+      const cert = e instanceof ApiError ? e.certificate : null;
+      if (cert) {
+        // A certificate problem has its own remedy, and telling them to go and
+        // check the host and port would send them looking in the wrong place.
+        setCertificate(cert);
+        setTrustCertificate(false);
+        setNote(e instanceof ApiError ? e.message : "Could not connect.");
+        setAdvanced(true);
+      } else {
+        setNote(
+          (e instanceof ApiError ? e.message : "Could not connect.") +
+            " Enter your server details below — your mail provider's help pages " +
+            "list them under IMAP settings.",
+        );
+        await revealManualSettings();
+      }
     } finally {
       setBusy(null);
     }
@@ -1190,6 +1214,80 @@ function MailboxConnect({
             </button>
           </div>
 
+          {certificate && (
+            <div className="space-y-2 border-t pt-3">
+              <div className="mono-xs" style={{ color: "var(--danger, #d33)" }}>
+                THIS SERVER&rsquo;S CERTIFICATE WAS NOT ACCEPTED
+              </div>
+              <p className="text-xs leading-relaxed">{certificate.summary}</p>
+
+              <dl className="mono-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                <dt className="fg-3">YOU CONNECTED TO</dt>
+                <dd className="break-all">{certificate.host}</dd>
+                <dt className="fg-3">VALID FOR</dt>
+                <dd className="break-all">
+                  {certificate.names.length
+                    ? certificate.names.join(", ")
+                    : "no host names"}
+                </dd>
+                <dt className="fg-3">ISSUED BY</dt>
+                <dd className="break-all">
+                  {certificate.self_signed ? "itself (self-signed)" : certificate.issuer}
+                </dd>
+                <dt className="fg-3">EXPIRES</dt>
+                <dd>{certificate.not_after}</dd>
+                <dt className="fg-3">FINGERPRINT</dt>
+                <dd className="break-all">{certificate.sha256}</dd>
+              </dl>
+
+              {/* The genuine fix comes first. Connecting by a name the
+                  certificate already covers needs no exception at all, and on
+                  shared hosting it is what the provider documents. */}
+              {certificate.names.length > 0 && !certificate.expired && (
+                <p className="fg-3 text-xs leading-relaxed">
+                  Best fix: put{" "}
+                  <button
+                    type="button"
+                    className="accent cursor-pointer underline"
+                    onClick={() => {
+                      setHost(certificate.names[0].replace(/^\*\./, "mail."));
+                      setCertificate(null);
+                      setTrustCertificate(false);
+                    }}
+                  >
+                    {certificate.names[0]}
+                  </button>{" "}
+                  in the server box above instead. Then nothing needs trusting.
+                </p>
+              )}
+
+              <label className="flex cursor-pointer items-start gap-2 text-xs leading-relaxed">
+                <input
+                  type="checkbox"
+                  checked={trustCertificate}
+                  onChange={(e) => setTrustCertificate(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Trust <strong>this exact certificate</strong> for this mailbox.
+                  {certificate.expired ? (
+                    <span className="block">
+                      This one has expired — ask whoever runs the server to renew
+                      it rather than trusting it.
+                    </span>
+                  ) : (
+                    <span className="fg-3 block">
+                      We will check every future connection is the same
+                      certificate, byte for byte. If it ever changes, we stop and
+                      tell you — so this is narrower than it sounds, not a
+                      blanket exception.
+                    </span>
+                  )}
+                </span>
+              </label>
+            </div>
+          )}
+
           {advanced && (
             <div className="space-y-2 border-t pt-3">
               <div className="flex items-center justify-between gap-2">
@@ -1209,7 +1307,13 @@ function MailboxConnect({
                 <input
                   id={`imap-host-${mailbox.id}`}
                   value={host}
-                  onChange={(e) => setHost(e.target.value)}
+                  onChange={(e) => {
+                    setHost(e.target.value);
+                    // A different server means a different certificate; an
+                    // approval must never survive the thing it applied to.
+                    setCertificate(null);
+                    setTrustCertificate(false);
+                  }}
                   placeholder="detected automatically"
                   className="field min-w-0 flex-1 text-sm"
                   autoComplete="off"
@@ -1339,6 +1443,33 @@ function MailboxConnect({
       )}
 
       {note && <p className="mt-2 text-xs text-red-600">{note}</p>}
+
+      {/* The way out when IMAP simply will not work.
+          Some mailboxes cannot be reached over IMAP at all — the provider has
+          switched it off, a firewall blocks it, or it only speaks an
+          authentication mechanism we do not. Forwarding needs none of that:
+          the customer adds a rule in whatever mail system they already have,
+          so no mailbox is ever out of reach. It is offered only after a
+          failure, because it protects less than a real connection and should
+          not tempt anyone away from the better option first. */}
+      {note && mode === "imap" && (
+        <p className="fg-3 mt-2 text-xs leading-relaxed">
+          Still no luck? You can{" "}
+          <button
+            type="button"
+            className="accent cursor-pointer underline"
+            onClick={() => {
+              setNote(null);
+              setCertificate(null);
+              void openForward();
+            }}
+          >
+            forward this mailbox to Envelock instead
+          </button>
+          . It works with any mail system and needs no password — though it can
+          only alert you, not quarantine a message or rewrite its links.
+        </p>
+      )}
     </div>
   );
 }
